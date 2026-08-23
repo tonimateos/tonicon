@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: "ToniCon",
+  title: "Tonicon",
   description: "Check out which concerts Toni is attending, listen to top tracks, RSVP 'I'm going' or 'Interested', and leave comments!",
 };
 
