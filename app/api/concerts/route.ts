@@ -33,10 +33,15 @@ export async function POST(req: NextRequest) {
       ? youtube_urls.filter((u: string) => typeof u === 'string' && u.trim().length > 0).slice(0, 3)
       : [];
 
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid concert date provided.' }, { status: 400 });
+    }
+
     const newConcert = await createConcert({
       band_name: band_name.trim(),
       venue_name: venue_name.trim(),
-      date: new Date(date).toISOString(),
+      date: parsedDate.toISOString(),
       url: url ? url.trim() : null,
       youtube_urls: cleanedYoutubeUrls,
       toni_comment: toni_comment ? toni_comment.trim() : null,
@@ -68,10 +73,15 @@ export async function PUT(req: NextRequest) {
       ? youtube_urls.filter((u: string) => typeof u === 'string' && u.trim().length > 0).slice(0, 3)
       : [];
 
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid concert date provided.' }, { status: 400 });
+    }
+
     const updated = await updateConcert(id, {
       band_name: band_name.trim(),
       venue_name: venue_name.trim(),
-      date: new Date(date).toISOString(),
+      date: parsedDate.toISOString(),
       url: url ? url.trim() : null,
       youtube_urls: cleanedYoutubeUrls,
       toni_comment: toni_comment ? toni_comment.trim() : null,

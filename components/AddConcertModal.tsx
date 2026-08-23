@@ -129,6 +129,13 @@ export function AddConcertModal({
       const cleanYt = youtubeUrls.filter((u) => u.trim().length > 0);
       const activePassword = password || adminPassword;
 
+      const parsedDateObj = new Date(date);
+      if (isNaN(parsedDateObj.getTime())) {
+        setSubmitError('Please enter a valid concert date and time.');
+        setSubmitting(false);
+        return;
+      }
+
       const isEdit = !!concertToEdit;
       const method = isEdit ? 'PUT' : 'POST';
       const bodyPayload = {
@@ -136,7 +143,7 @@ export function AddConcertModal({
         password: activePassword,
         band_name: bandName.trim(),
         venue_name: venueName.trim(),
-        date: new Date(date).toISOString(),
+        date: parsedDateObj.toISOString(),
         url: url.trim() || null,
         youtube_urls: cleanYt,
         toni_comment: toniComment.trim() || null,
