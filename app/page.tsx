@@ -188,7 +188,7 @@ export default function HomePage() {
               }`}
           >
             <Archive className="w-3.5 h-3.5" />
-            <span>Past Concerts</span>
+            <span>Past</span>
             <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
               }`}>
               {pastConcerts.length}
