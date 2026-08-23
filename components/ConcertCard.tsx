@@ -34,19 +34,37 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
 
       {/* Top Banner & Info */}
       <div>
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+        {/* Line 1: (Left) Date & Time, (Right) Venue */}
+        <div className="flex items-center justify-between gap-3 mb-2.5">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-xs font-semibold shrink-0">
             <Calendar className="w-3.5 h-3.5 text-indigo-400" />
             <span>{formattedDate}</span>
             {formattedTime !== '00:00' && <span className="opacity-75">• {formattedTime}</span>}
           </div>
+
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(concert.venue_name + ', Barcelona')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-pink-400 group transition truncate"
+            title={`Search ${concert.venue_name}, Barcelona on Google Maps`}
+          >
+            <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0 group-hover:scale-110 transition-transform" />
+            <span className="font-medium group-hover:underline group-hover:text-pink-300 truncate">{concert.venue_name}</span>
+            <ExternalLink className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 transition shrink-0" />
+          </a>
+        </div>
+
+        {/* Line 2: (Left) Band Name, (Right) Event Info */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-xl font-bold text-white tracking-tight font-display">{concert.band_name}</h2>
 
           {concert.url && (
             <a
               href={concert.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-slate-400 hover:text-indigo-400 flex items-center gap-1 transition"
+              className="text-xs text-slate-400 hover:text-indigo-400 flex items-center gap-1 transition shrink-0"
               title="View Event Link"
             >
               <span>Event Info</span>
@@ -54,20 +72,6 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
             </a>
           )}
         </div>
-
-        {/* Band & Venue */}
-        <h2 className="text-xl font-bold text-white tracking-tight font-display">{concert.band_name}</h2>
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(concert.venue_name + ', Barcelona')}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-pink-400 mt-1 group transition"
-          title={`Search ${concert.venue_name}, Barcelona on Google Maps`}
-        >
-          <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0 group-hover:scale-110 transition-transform" />
-          <span className="font-medium text-slate-300 group-hover:underline group-hover:text-pink-300">{concert.venue_name}</span>
-          <ExternalLink className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 transition" />
-        </a>
 
         {/* Toni's Comment Callout */}
         {concert.toni_comment && (
