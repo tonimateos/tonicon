@@ -75,16 +75,14 @@ export default function HomePage() {
 
           {/* Logo / Brand */}
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20">
-              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-                <Music className="w-5 h-5 text-pink-400" />
-              </div>
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-indigo-500/40 shadow-lg shadow-indigo-500/20 shrink-0 bg-slate-900">
+              <img src="/totoro.jpg" alt="Totoro" className="w-full h-full object-cover rounded-full" />
             </div>
             <div>
               <h1 className="font-extrabold text-lg sm:text-xl text-white tracking-tight font-display flex items-center gap-2">
                 ToniCon
               </h1>
-              <p className="text-xs text-slate-400">Toni is going to...</p>
+              <p className="text-xs text-slate-400">Toni is going to these concerts...</p>
             </div>
           </div>
 
@@ -111,17 +109,15 @@ export default function HomePage() {
           <button
             id="tab-upcoming"
             onClick={() => setActiveTab('upcoming')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
-              activeTab === 'upcoming'
+            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${activeTab === 'upcoming'
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-            }`}
+              }`}
           >
             <Calendar className="w-3.5 h-3.5" />
             <span>Upcoming</span>
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-              activeTab === 'upcoming' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeTab === 'upcoming' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
               {upcomingConcerts.length}
             </span>
           </button>
@@ -130,17 +126,15 @@ export default function HomePage() {
           <button
             id="tab-past"
             onClick={() => setActiveTab('past')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
-              activeTab === 'past'
+            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${activeTab === 'past'
                 ? 'bg-slate-800 text-white shadow-md border border-slate-700'
                 : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-            }`}
+              }`}
           >
             <Archive className="w-3.5 h-3.5" />
             <span>Past Concerts</span>
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-              activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
-            }`}>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
               {pastConcerts.length}
             </span>
           </button>
