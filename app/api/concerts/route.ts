@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchAllConcerts, createConcert, updateConcert } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const concerts = await fetchAllConcerts();

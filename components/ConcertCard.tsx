@@ -110,10 +110,6 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
         {/* Render Friends Activity section only if activities exist */}
         {activities.length > 0 && (
           <div className="mb-4 space-y-2">
-            <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">Activity</span>
-            </div>
-
             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
               {activities.map((act) => {
                 const actDate = new Date(act.created_at).toLocaleDateString('en-GB', {
