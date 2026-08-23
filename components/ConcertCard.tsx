@@ -60,7 +60,7 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
         {/* Line 2: (Left) Band Name + Edit Button, (Right) Event Info */}
         <div className="flex items-center justify-between gap-3 my-1">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-display bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent drop-shadow-sm">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-display bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-400 bg-clip-text text-transparent drop-shadow-sm">
               {concert.band_name}
             </h2>
             {isAdmin && onEditConcert && (
