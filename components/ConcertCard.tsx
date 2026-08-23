@@ -30,7 +30,9 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
   const activities = concert.activities || [];
 
   return (
-    <div className="relative bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 shadow-xl transition-all duration-200 overflow-hidden flex flex-col justify-between">
+    <div className="relative bg-slate-900/95 border border-slate-700/90 hover:border-indigo-500/50 rounded-2xl p-6 shadow-2xl shadow-slate-950/90 ring-1 ring-white/10 transition-all duration-200 overflow-hidden flex flex-col justify-between group">
+      {/* Top Accent Line for visual separation */}
+      <div className={`absolute top-0 left-0 right-0 h-1 ${isPast ? 'bg-slate-700/60' : 'bg-gradient-to-r from-indigo-500 via-pink-500 to-emerald-500 opacity-70 group-hover:opacity-100'} transition-opacity`} />
 
       {/* Top Banner & Info */}
       <div>
@@ -103,7 +105,7 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
       </div>
 
       {/* Activity Timeline & RSVP Section */}
-      <div className="mt-5 pt-4 border-t border-slate-800/80">
+      <div className="mt-5 pt-4 border-t border-slate-700/60">
 
         {/* Render Friends Activity section only if activities exist */}
         {activities.length > 0 && (
@@ -133,7 +135,7 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
                 }
 
                 return (
-                  <div key={act.id} className="py-2 px-3 bg-slate-950/70 border border-slate-800/70 rounded-xl text-xs flex items-start justify-between gap-2">
+                  <div key={act.id} className="py-2 px-3 bg-slate-950/70 border border-slate-700/60 rounded-xl text-xs flex items-start justify-between gap-2">
                     <div className="text-slate-300 whitespace-normal break-words leading-relaxed flex-1">
                       <span className="font-semibold text-white">{act.user_name}</span>{' '}
                       <span className={actionColor}>{actionText}</span>
