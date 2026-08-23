@@ -118,7 +118,7 @@ export function FriendActionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
       <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-slate-100">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -147,12 +147,12 @@ export function FriendActionModal({
           {/* Name Field */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              How are you? Add your name or a pseudonym that Toni will understand <span className="text-pink-400">*</span>
+              Add your name or a pseudonym that Toni will understand <span className="text-pink-400">*</span>
             </label>
             <input
               type="text"
               required
-              placeholder="e.g. Alex (or your nickname)"
+              placeholder="e.g. Maria Arnal"
               value={userName}
               onChange={(e) => setUserName(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
@@ -168,7 +168,7 @@ export function FriendActionModal({
               <textarea
                 rows={3}
                 required={targetAction === 'COMMENT'}
-                placeholder="Share any thoughts, meetup details, or questions..."
+                placeholder="e.g. I'm not 100% sure, I'll confirm by whatsapp"
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition resize-none"
