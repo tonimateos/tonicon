@@ -22,6 +22,7 @@ The goal of the page is to:
     - When clicking one of this it asks "How are you? Add your name or a pseudonym that Toni will understand".
     - An ordered list of actions "[name] said [action] on [date]"
     - If Toni added a comment when adding the concert, disply this comment too.
+    - Friends don't need a password. Just a minimal "proof you are not a bot" thing appears after entering their name. It's enough to enter a number for instance, and check it against a simple math question.
 
 - Finally at the top of the page there is a button "Add a concert" that opens a form to add a new concert. When clicked, it asks for a a password to make sure it's Toni. This password is secret. This form contains:
     - a link field where all info about the concert will be scraped from, this link points to a place where all info is available except for the youtube videos. Gemini will helps parse this page and get the date, name and venue.
