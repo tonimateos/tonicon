@@ -26,8 +26,6 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
   });
 
   const activities = concert.activities || [];
-  const goingCount = activities.filter((a) => a.action_type === 'GOING').length;
-  const interestedCount = activities.filter((a) => a.action_type === 'INTERESTED').length;
 
 
 
@@ -96,18 +94,6 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
           <div className="mb-4 space-y-2">
             <div className="flex items-center justify-between text-xs mb-2">
               <span className="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">Activity</span>
-              <div className="flex items-center gap-2">
-                {goingCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
-                    {goingCount} Going
-                  </span>
-                )}
-                {interestedCount > 0 && (
-                  <span className="px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-300 border border-pink-500/20 font-medium">
-                    {interestedCount} Interested
-                  </span>
-                )}
-              </div>
             </div>
 
             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
