@@ -25,7 +25,7 @@ export function YouTubeEmbed({ urls }: YouTubeEmbedProps) {
           title="Watch video on YouTube (opens in new tab)"
         >
           <Play className="w-3 h-3 text-pink-400 fill-pink-400" />
-          <span>Video #{idx + 1}</span>
+          <span>Video</span>
           <ExternalLink className="w-3 h-3 text-slate-400" />
         </a>
       ))}
