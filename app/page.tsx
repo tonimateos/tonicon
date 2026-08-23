@@ -1,0 +1,237 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { Plus, Music, Calendar, Archive, RefreshCw, Sparkles, Heart } from 'lucide-react';
+import { Concert, ActionType } from '@/lib/types';
+import { ConcertCard } from '@/components/ConcertCard';
+import { AddConcertModal } from '@/components/AddConcertModal';
+import { FriendActionModal } from '@/components/FriendActionModal';
+
+export default function HomePage() {
+  const [concerts, setConcerts] = useState<Concert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
+
+  // Modals state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  const [friendModalState, setFriendModalState] = useState<{
+    isOpen: boolean;
+    concertId: string;
+    bandName: string;
+    targetAction: ActionType;
+  }>({
+    isOpen: false,
+    concertId: '',
+    bandName: '',
+    targetAction: 'GOING'
+  });
+
+  const fetchConcerts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/concerts');
+      const data = await res.json();
+      if (res.ok && data.concerts) {
+        setConcerts(data.concerts);
+      }
+    } catch (err) {
+      console.error('Failed to load concerts:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConcerts();
+  }, []);
+
+  const now = new Date();
+
+  // Filter concerts by date
+  const upcomingConcerts = concerts
+    .filter((c) => new Date(c.date) >= now)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  const pastConcerts = concerts
+    .filter((c) => new Date(c.date) < now)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const handleOpenActionModal = (concertId: string, bandName: string, action: ActionType) => {
+    setFriendModalState({
+      isOpen: true,
+      concertId,
+      bandName,
+      targetAction: action
+    });
+  };
+
+  return (
+    <main className="min-h-screen pb-16">
+      
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-4 py-4">
+        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+          
+          {/* Logo / Brand */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20">
+              <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+                <Music className="w-5 h-5 text-pink-400" />
+              </div>
+            </div>
+            <div>
+              <h1 className="font-extrabold text-lg sm:text-xl text-white tracking-tight font-display flex items-center gap-2">
+                Toni's Concerts
+              </h1>
+              <p className="text-xs text-slate-400">See upcoming gigs & RSVP with friends</p>
+            </div>
+          </div>
+
+          {/* Add Concert Button (Admin) */}
+          <button
+            id="add-concert-btn"
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 transition-all duration-200 shrink-0"
+          >
+            <Plus className="w-4 h-4 text-white" />
+            <span className="hidden sm:inline">Add a Concert</span>
+            <span className="sm:hidden">Add</span>
+          </button>
+
+        </div>
+      </header>
+
+      {/* Main Container */}
+      <div className="max-w-4xl mx-auto px-4 pt-6 space-y-6">
+        
+        {/* Navigation Tabs & Refresh */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            
+            {/* Upcoming Tab */}
+            <button
+              id="tab-upcoming"
+              onClick={() => setActiveTab('upcoming')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+                activeTab === 'upcoming'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Upcoming</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                activeTab === 'upcoming' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {upcomingConcerts.length}
+              </span>
+            </button>
+
+            {/* Past Tab */}
+            <button
+              id="tab-past"
+              onClick={() => setActiveTab('past')}
+              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+                activeTab === 'past'
+                  ? 'bg-slate-800 text-white shadow-md border border-slate-700'
+                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>Past Concerts</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+                activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {pastConcerts.length}
+              </span>
+            </button>
+
+          </div>
+
+          <button
+            onClick={fetchConcerts}
+            disabled={loading}
+            className="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl transition"
+            title="Refresh Concerts"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+          </button>
+        </div>
+
+        {/* Content List */}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-64 bg-slate-900/60 border border-slate-800/80 rounded-2xl animate-pulse p-5 space-y-4">
+                <div className="h-4 bg-slate-800 rounded w-1/3" />
+                <div className="h-6 bg-slate-800 rounded w-2/3" />
+                <div className="h-4 bg-slate-800 rounded w-1/2" />
+                <div className="h-20 bg-slate-800/50 rounded-xl" />
+              </div>
+            ))}
+          </div>
+        ) : activeTab === 'upcoming' ? (
+          upcomingConcerts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-fade-in">
+              {upcomingConcerts.map((concert) => (
+                <ConcertCard
+                  key={concert.id}
+                  concert={concert}
+                  onOpenActionModal={handleOpenActionModal}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="py-16 text-center bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6">
+              <Sparkles className="w-10 h-10 text-indigo-400 mx-auto mb-3 opacity-60" />
+              <h3 className="text-base font-semibold text-white">No upcoming concerts listed yet</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                Click "Add a Concert" above to add the next gig Toni is attending!
+              </p>
+            </div>
+          )
+        ) : (
+          pastConcerts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-fade-in">
+              {pastConcerts.map((concert) => (
+                <ConcertCard
+                  key={concert.id}
+                  concert={concert}
+                  isPast={true}
+                  onOpenActionModal={handleOpenActionModal}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="py-16 text-center bg-slate-900/40 border border-slate-800/80 rounded-2xl p-6">
+              <Archive className="w-10 h-10 text-slate-500 mx-auto mb-3 opacity-60" />
+              <h3 className="text-base font-semibold text-white">No past concerts archived</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                Concerts that have passed will automatically appear in this tab.
+              </p>
+            </div>
+          )
+        )}
+
+      </div>
+
+      {/* Modals */}
+      <AddConcertModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSuccess={fetchConcerts}
+      />
+
+      <FriendActionModal
+        isOpen={friendModalState.isOpen}
+        onClose={() => setFriendModalState((prev) => ({ ...prev, isOpen: false }))}
+        concertId={friendModalState.concertId}
+        bandName={friendModalState.bandName}
+        targetAction={friendModalState.targetAction}
+        onSuccess={fetchConcerts}
+      />
+
+    </main>
+  );
+}
