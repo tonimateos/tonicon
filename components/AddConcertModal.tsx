@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Lock, Sparkles, Plus, Trash2, Calendar, MapPin, Music, Link as LinkIcon, AlertCircle } from 'lucide-react';
+import { X, Lock, Plus, Calendar, MapPin, Music, Link as LinkIcon, AlertCircle } from 'lucide-react';
 
 interface AddConcertModalProps {
   isOpen: boolean;
@@ -15,13 +15,10 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
   const [authError, setAuthError] = useState('');
 
   // Form state
-  const [url, setUrl] = useState('');
-  const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState('');
-
   const [bandName, setBandName] = useState('');
   const [venueName, setVenueName] = useState('');
   const [date, setDate] = useState('');
+  const [url, setUrl] = useState('');
   const [youtubeUrls, setYoutubeUrls] = useState<string[]>(['', '', '']);
   const [toniComment, setToniComment] = useState('');
 
@@ -36,49 +33,8 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
       setAuthError('Please enter your secret admin password.');
       return;
     }
-    // We will validate on server submission as well, but check basic non-empty here
     setAuthError('');
     setIsAuthenticated(true);
-  };
-
-  const handleScrapeUrl = async () => {
-    if (!url.trim() || !url.startsWith('http')) {
-      setScrapeError('Please enter a valid link starting with http:// or https://');
-      return;
-    }
-
-    setScraping(true);
-    setScrapeError('');
-
-    try {
-      const res = await fetch('/api/scrape', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Could not parse webpage.');
-      }
-
-      if (data.band_name) setBandName(data.band_name);
-      if (data.venue_name) setVenueName(data.venue_name);
-      if (data.date) {
-        // Format ISO date to datetime-local string (YYYY-MM-DDTHH:mm)
-        try {
-          const d = new Date(data.date);
-          const iso = d.toISOString().slice(0, 16);
-          setDate(iso);
-        } catch (e) {
-          console.warn('Date parsing error:', e);
-        }
-      }
-    } catch (err: any) {
-      setScrapeError(err.message || 'Failed to auto-parse link. You can type details manually below.');
-    } finally {
-      setScraping(false);
-    }
   };
 
   const handleAddConcert = async (e: React.FormEvent) => {
@@ -219,33 +175,6 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
               </div>
             )}
 
-            {/* Event URL Link & AI Scraping */}
-            <div className="p-3.5 bg-slate-950/80 border border-indigo-500/20 rounded-xl space-y-2">
-              <label className="block text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                <LinkIcon className="w-3.5 h-3.5 text-indigo-400" />
-                Event Page Link (Scrape info with Gemini)
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  placeholder="https://dice.fm/event/..."
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleScrapeUrl}
-                  disabled={scraping}
-                  className="px-3.5 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-medium rounded-lg flex items-center gap-1.5 transition shrink-0 disabled:opacity-50"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
-                  {scraping ? 'Parsing...' : 'Auto-Parse'}
-                </button>
-              </div>
-              {scrapeError && <p className="text-[11px] text-amber-400 mt-1">{scrapeError}</p>}
-            </div>
-
             {/* Band Name */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
@@ -299,20 +228,37 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
               </div>
             </div>
 
+            {/* Event URL Link */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Event Page Link (optional)
+              </label>
+              <div className="relative">
+                <LinkIcon className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type="url"
+                  placeholder="https://dice.fm/event/... or https://ticketmaster.com/..."
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
+                />
+              </div>
+            </div>
+
             {/* YouTube Videos (up to 3) */}
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Band YouTube Videos (up to 3)
+                Band YouTube Videos (up to 3, optional)
               </label>
               <div className="space-y-2">
                 {[0, 1, 2].map((idx) => (
                   <input
                     key={idx}
                     type="url"
-                    placeholder={`YouTube URL #${idx + 1} (optional)`}
+                    placeholder={`YouTube URL #${idx + 1}`}
                     value={youtubeUrls[idx] || ''}
                     onChange={(e) => updateYoutubeUrl(idx, e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                   />
                 ))}
               </div>
