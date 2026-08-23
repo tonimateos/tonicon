@@ -81,7 +81,7 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
       setUrl('');
       setYoutubeUrls(['', '', '']);
       setToniComment('');
-      
+
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -100,7 +100,7 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-slate-100 max-h-[90vh] overflow-y-auto">
-        
+
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -109,7 +109,6 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
             </div>
             <div>
               <h3 className="font-semibold text-lg text-white">Add a New Concert</h3>
-              <p className="text-xs text-slate-400">Add an upcoming gig for you and your friends</p>
             </div>
           </div>
           <button
@@ -127,8 +126,7 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
               <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
                 <Lock className="w-5 h-5" />
               </div>
-              <h4 className="text-sm font-semibold text-white">Admin Authentication</h4>
-              <p className="text-xs text-slate-400 mt-1">Please enter your secret password to prove it's Toni.</p>
+              <h4 className="text-sm font-semibold text-white">ONLY TONI CAN ADD NEW CONCERTS</h4>
             </div>
 
             {authError && (
@@ -139,11 +137,10 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Secret Password</label>
               <input
                 type="password"
                 required
-                placeholder="Enter password..."
+                placeholder="Toni password..."
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
