@@ -116,7 +116,7 @@ export default function HomePage() {
             </div>
             <div>
               <h1 className="font-extrabold text-lg sm:text-xl text-white tracking-tight font-display flex items-center gap-2">
-                ToniCon
+                Tonicon
               </h1>
               <p className="text-xs text-slate-400">Toni is going to these concerts...</p>
             </div>
@@ -166,8 +166,8 @@ export default function HomePage() {
             id="tab-upcoming"
             onClick={() => setActiveTab('upcoming')}
             className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${activeTab === 'upcoming'
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
               }`}
           >
             <Calendar className="w-3.5 h-3.5" />
@@ -183,8 +183,8 @@ export default function HomePage() {
             id="tab-past"
             onClick={() => setActiveTab('past')}
             className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${activeTab === 'past'
-                ? 'bg-slate-800 text-white shadow-md border border-slate-700'
-                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+              ? 'bg-slate-800 text-white shadow-md border border-slate-700'
+              : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
               }`}
           >
             <Archive className="w-3.5 h-3.5" />
@@ -198,7 +198,7 @@ export default function HomePage() {
 
         {/* Content List */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-4">
             {[1, 2].map((i) => (
               <div key={i} className="h-48 bg-slate-900/50 border border-slate-800 rounded-2xl animate-pulse p-5 flex flex-col justify-between">
                 <div className="space-y-3">
@@ -211,7 +211,7 @@ export default function HomePage() {
           </div>
         ) : activeTab === 'upcoming' ? (
           upcomingConcerts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-fade-in">
+            <div className="flex flex-col gap-5 animate-fade-in">
               {upcomingConcerts.map((concert) => (
                 <ConcertCard
                   key={concert.id}
@@ -233,7 +233,7 @@ export default function HomePage() {
           )
         ) : (
           pastConcerts.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-fade-in">
+            <div className="flex flex-col gap-5 animate-fade-in">
               {pastConcerts.map((concert) => (
                 <ConcertCard
                   key={concert.id}
