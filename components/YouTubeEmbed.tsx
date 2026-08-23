@@ -32,11 +32,6 @@ export function YouTubeEmbed({ urls }: YouTubeEmbedProps) {
 
   return (
     <div className="mt-4 pt-3 border-t border-slate-700/50">
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-[#ec4899] items-center gap-1.5">
-        <Play className="w-3.5 h-3.5 text-pink-400" />
-        Featured YouTube Videos
-      </p>
-
       {/* Video Embed Player Modal / Inline */}
       {activeEmbed && (
         <div className="mb-3 relative rounded-xl overflow-hidden aspect-video bg-black shadow-xl border border-slate-700">
