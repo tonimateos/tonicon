@@ -14,13 +14,13 @@ interface ConcertCardProps {
 }
 
 export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditConcert, onOpenActionModal }: ConcertCardProps) {
-  // Format date nicely
+  // Format date nicely (omit year for upcoming concerts)
   const concertDateObj = new Date(concert.date);
   const formattedDate = concertDateObj.toLocaleDateString('en-GB', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
-    year: 'numeric'
+    ...(isPast ? { year: 'numeric' } : {})
   });
   const formattedTime = concertDateObj.toLocaleTimeString('en-GB', {
     hour: '2-digit',
