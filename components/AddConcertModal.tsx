@@ -25,16 +25,39 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  if (!isOpen) return null;
+  const [verifyingAuth, setVerifyingAuth] = useState(false);
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password) {
       setAuthError('Please enter your secret admin password.');
       return;
     }
+
+    setVerifyingAuth(true);
     setAuthError('');
-    setIsAuthenticated(true);
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error || 'Incorrect password! Only Toni can add concerts.');
+        setIsAuthenticated(false);
+        return;
+      }
+
+      setIsAuthenticated(true);
+    } catch (err: any) {
+      setAuthError('Failed to verify password. Please try again.');
+      setIsAuthenticated(false);
+    } finally {
+      setVerifyingAuth(false);
+    }
   };
 
   const handleAddConcert = async (e: React.FormEvent) => {
@@ -97,6 +120,8 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
     setYoutubeUrls(next);
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-slate-100 max-h-[90vh] overflow-y-auto">
@@ -157,9 +182,10 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-600/30 transition"
+                disabled={verifyingAuth}
+                className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
               >
-                Continue
+                {verifyingAuth ? 'Verifying...' : 'Continue'}
               </button>
             </div>
           </form>
