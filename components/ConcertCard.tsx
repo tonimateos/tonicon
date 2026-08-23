@@ -29,27 +29,11 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
   const goingCount = activities.filter((a) => a.action_type === 'GOING').length;
   const interestedCount = activities.filter((a) => a.action_type === 'INTERESTED').length;
 
-  const formatActivityText = (act: Activity) => {
-    const actDate = new Date(act.created_at).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short'
-    });
 
-    switch (act.action_type) {
-      case 'GOING':
-        return { text: `${act.user_name} is going`, date: actDate, badgeColor: 'text-emerald-400 bg-emerald-950/40 border-emerald-800/40' };
-      case 'INTERESTED':
-        return { text: `${act.user_name} is interested`, date: actDate, badgeColor: 'text-pink-400 bg-pink-950/40 border-pink-800/40' };
-      case 'COMMENT':
-        return { text: `${act.user_name} commented`, date: actDate, badgeColor: 'text-indigo-400 bg-indigo-950/40 border-indigo-800/40' };
-      case 'REMOVED':
-        return { text: `${act.user_name} updated status`, date: actDate, badgeColor: 'text-slate-400 bg-slate-800 border-slate-700' };
-    }
-  };
 
   return (
     <div className="relative bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 shadow-xl transition-all duration-200 overflow-hidden flex flex-col justify-between">
-      
+
       {/* Top Banner & Info */}
       <div>
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -99,12 +83,12 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
 
       {/* Activity Timeline & RSVP Section */}
       <div className="mt-5 pt-4 border-t border-slate-800/80">
-        
+
         {/* Render Friends Activity section only if activities exist */}
         {activities.length > 0 && (
           <div className="mb-4 space-y-2">
             <div className="flex items-center justify-between text-xs mb-2">
-              <span className="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">Friends Activity</span>
+              <span className="font-semibold text-slate-400 uppercase tracking-wider text-[10px]">Activity</span>
               <div className="flex items-center gap-2">
                 {goingCount > 0 && (
                   <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
@@ -119,20 +103,36 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
               </div>
             </div>
 
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
               {activities.map((act) => {
-                const meta = formatActivityText(act);
+                const actDate = new Date(act.created_at).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short'
+                });
+
+                let actionText = 'is going';
+                let actionColor = 'text-emerald-400';
+                if (act.action_type === 'INTERESTED') {
+                  actionText = 'is interested';
+                  actionColor = 'text-pink-400';
+                } else if (act.action_type === 'COMMENT') {
+                  actionText = 'commented';
+                  actionColor = 'text-indigo-400';
+                } else if (act.action_type === 'REMOVED') {
+                  actionText = 'updated status';
+                  actionColor = 'text-slate-400';
+                }
+
                 return (
-                  <div key={act.id} className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-xl text-xs space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-0.5 rounded-md border text-[11px] font-medium ${meta.badgeColor}`}>
-                        {meta.text}
-                      </span>
-                      <span className="text-[10px] text-slate-500">{meta.date}</span>
+                  <div key={act.id} className="py-1.5 px-3 bg-slate-950/70 border border-slate-800/70 rounded-xl text-xs flex items-center justify-between gap-2 overflow-hidden">
+                    <div className="truncate text-slate-300">
+                      <span className="font-semibold text-white">{act.user_name}</span>{' '}
+                      <span className={actionColor}>{actionText}</span>
+                      {act.comment_text && (
+                        <span className="text-slate-200 italic font-normal">{` "${act.comment_text}"`}</span>
+                      )}
                     </div>
-                    {act.comment_text && (
-                      <p className="text-slate-300 pl-1 pt-0.5 italic">"{act.comment_text}"</p>
-                    )}
+                    <span className="text-[10px] text-slate-500 font-medium shrink-0">on {actDate}</span>
                   </div>
                 );
               })}
