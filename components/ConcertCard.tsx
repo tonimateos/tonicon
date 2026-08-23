@@ -59,10 +59,17 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
 
         {/* Band & Venue */}
         <h2 className="text-xl font-bold text-white tracking-tight font-display">{concert.band_name}</h2>
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-          <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-          <span className="font-medium text-slate-300">{concert.venue_name}</span>
-        </div>
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(concert.venue_name + ', Barcelona')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-pink-400 mt-1 group transition"
+          title={`Search ${concert.venue_name}, Barcelona on Google Maps`}
+        >
+          <MapPin className="w-3.5 h-3.5 text-pink-400 shrink-0 group-hover:scale-110 transition-transform" />
+          <span className="font-medium text-slate-300 group-hover:underline group-hover:text-pink-300">{concert.venue_name}</span>
+          <ExternalLink className="w-3 h-3 text-slate-500 opacity-60 group-hover:opacity-100 transition" />
+        </a>
 
         {/* Toni's Comment Callout */}
         {concert.toni_comment && (
