@@ -1,17 +1,28 @@
 'use client';
 
-import React, { useState } from 'react';
-import { X, Lock, Plus, Calendar, MapPin, Music, Link as LinkIcon, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Lock, Plus, Calendar, MapPin, Music, Link as LinkIcon, AlertCircle, Edit3 } from 'lucide-react';
+import { Concert } from '@/lib/types';
 
 interface AddConcertModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  adminPassword?: string;
+  onAdminAuthSuccess?: (password: string) => void;
+  concertToEdit?: Concert | null;
 }
 
-export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalProps) {
-  const [password, setPassword] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+export function AddConcertModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  adminPassword = '',
+  onAdminAuthSuccess,
+  concertToEdit = null,
+}: AddConcertModalProps) {
+  const [password, setPassword] = useState(adminPassword);
+  const [isAuthenticated, setIsAuthenticated] = useState(!!adminPassword);
   const [authError, setAuthError] = useState('');
 
   // Form state
@@ -24,8 +35,49 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
-
   const [verifyingAuth, setVerifyingAuth] = useState(false);
+
+  // Sync state when modal opens or concertToEdit changes
+  useEffect(() => {
+    if (adminPassword) {
+      setPassword(adminPassword);
+      setIsAuthenticated(true);
+    } else {
+      setIsAuthenticated(false);
+    }
+
+    if (concertToEdit) {
+      setBandName(concertToEdit.band_name || '');
+      setVenueName(concertToEdit.venue_name || '');
+      
+      if (concertToEdit.date) {
+        try {
+          const d = new Date(concertToEdit.date);
+          // Format for datetime-local input YYYY-MM-DDTHH:mm
+          const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 16);
+          setDate(isoStr);
+        } catch {
+          setDate('');
+        }
+      } else {
+        setDate('');
+      }
+
+      setUrl(concertToEdit.url || '');
+      const yt = concertToEdit.youtube_urls || [];
+      setYoutubeUrls([yt[0] || '', yt[1] || '', yt[2] || '']);
+      setToniComment(concertToEdit.toni_comment || '');
+    } else {
+      setBandName('');
+      setVenueName('');
+      setDate('');
+      setUrl('');
+      setYoutubeUrls(['', '', '']);
+      setToniComment('');
+    }
+  }, [isOpen, concertToEdit, adminPassword]);
 
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +104,9 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
       }
 
       setIsAuthenticated(true);
+      if (onAdminAuthSuccess) {
+        onAdminAuthSuccess(password);
+      }
     } catch (err: any) {
       setAuthError('Failed to verify password. Please try again.');
       setIsAuthenticated(false);
@@ -60,7 +115,7 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
     }
   };
 
-  const handleAddConcert = async (e: React.FormEvent) => {
+  const handleSaveConcert = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bandName.trim() || !venueName.trim() || !date) {
       setSubmitError('Band name, venue name, and concert date are required.');
@@ -72,43 +127,51 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
 
     try {
       const cleanYt = youtubeUrls.filter((u) => u.trim().length > 0);
+      const activePassword = password || adminPassword;
+
+      const isEdit = !!concertToEdit;
+      const method = isEdit ? 'PUT' : 'POST';
+      const bodyPayload = {
+        id: concertToEdit?.id,
+        password: activePassword,
+        band_name: bandName.trim(),
+        venue_name: venueName.trim(),
+        date: new Date(date).toISOString(),
+        url: url.trim() || null,
+        youtube_urls: cleanYt,
+        toni_comment: toniComment.trim() || null,
+      };
 
       const res = await fetch('/api/concerts', {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          password,
-          band_name: bandName.trim(),
-          venue_name: venueName.trim(),
-          date: new Date(date).toISOString(),
-          url: url.trim() || null,
-          youtube_urls: cleanYt,
-          toni_comment: toniComment.trim() || null,
-        }),
+        body: JSON.stringify(bodyPayload),
       });
 
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
           setIsAuthenticated(false);
-          setAuthError('Incorrect password!');
+          setAuthError('Incorrect password! Session expired.');
           return;
         }
-        throw new Error(data.error || 'Failed to add concert.');
+        throw new Error(data.error || `Failed to ${isEdit ? 'update' : 'add'} concert.`);
       }
 
-      // Reset form
-      setBandName('');
-      setVenueName('');
-      setDate('');
-      setUrl('');
-      setYoutubeUrls(['', '', '']);
-      setToniComment('');
+      // Reset form if creating
+      if (!isEdit) {
+        setBandName('');
+        setVenueName('');
+        setDate('');
+        setUrl('');
+        setYoutubeUrls(['', '', '']);
+        setToniComment('');
+      }
 
       onSuccess();
       onClose();
     } catch (err: any) {
-      setSubmitError(err.message || 'Something went wrong while adding the concert.');
+      setSubmitError(err.message || 'Something went wrong while saving the concert.');
     } finally {
       setSubmitting(false);
     }
@@ -122,6 +185,8 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
 
   if (!isOpen) return null;
 
+  const isEditMode = !!concertToEdit;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 text-slate-100 max-h-[90vh] overflow-y-auto">
@@ -130,10 +195,12 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <Plus className="w-5 h-5" />
+              {isEditMode ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             </div>
             <div>
-              <h3 className="font-semibold text-lg text-white">Add a New Concert</h3>
+              <h3 className="font-semibold text-lg text-white">
+                {isEditMode ? 'Edit Concert' : 'Add a New Concert'}
+              </h3>
             </div>
           </div>
           <button
@@ -144,14 +211,15 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
           </button>
         </div>
 
-        {/* Step 1: Password Gate */}
+        {/* Step 1: Password Gate (if not authenticated) */}
         {!isAuthenticated ? (
           <form onSubmit={handlePasswordSubmit} className="mt-6 space-y-4">
             <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-xl text-center">
               <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400">
                 <Lock className="w-5 h-5" />
               </div>
-              <h4 className="text-sm font-semibold text-white">ONLY TONI CAN ADD NEW CONCERTS</h4>
+              <h4 className="text-sm font-semibold text-white">ADMIN ACCESS REQUIRED</h4>
+              <p className="text-xs text-slate-400 mt-1">Please enter Toni's password to unlock Admin mode.</p>
             </div>
 
             {authError && (
@@ -185,13 +253,13 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
                 disabled={verifyingAuth}
                 className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
               >
-                {verifyingAuth ? 'Verifying...' : 'Continue'}
+                {verifyingAuth ? 'Verifying...' : 'Unlock Admin'}
               </button>
             </div>
           </form>
         ) : (
-          /* Step 2: Main Concert Form */
-          <form onSubmit={handleAddConcert} className="mt-5 space-y-4">
+          /* Step 2: Main Concert Form (Create or Edit) */
+          <form onSubmit={handleSaveConcert} className="mt-5 space-y-4">
             {submitError && (
               <div className="p-3 text-xs bg-rose-950/60 border border-rose-800/80 text-rose-300 rounded-xl">
                 {submitError}
@@ -226,7 +294,7 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
                 <input
                   type="text"
                   required
-                  placeholder="e.g. O2 Academy Brixton, London"
+                  placeholder="e.g. Razzmatazz, Barcelona"
                   value={venueName}
                   onChange={(e) => setVenueName(e.target.value)}
                   className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition"
@@ -315,7 +383,9 @@ export function AddConcertModal({ isOpen, onClose, onSuccess }: AddConcertModalP
                 disabled={submitting}
                 className="px-5 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-50"
               >
-                {submitting ? 'Adding Concert...' : 'Add Concert'}
+                {submitting
+                  ? (isEditMode ? 'Saving Changes...' : 'Adding Concert...')
+                  : (isEditMode ? 'Save Changes' : 'Add Concert')}
               </button>
             </div>
           </form>

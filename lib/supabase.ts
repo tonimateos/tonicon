@@ -74,6 +74,35 @@ export async function createConcert(concertData: Omit<Concert, 'id' | 'created_a
   };
 }
 
+export async function updateConcert(
+  id: string,
+  concertData: Partial<Omit<Concert, 'id' | 'created_at' | 'activities'>>
+): Promise<Concert> {
+  const { data, error } = await supabase
+    .from('concerts')
+    .update({
+      band_name: concertData.band_name,
+      venue_name: concertData.venue_name,
+      date: concertData.date,
+      url: concertData.url !== undefined ? concertData.url : null,
+      youtube_urls: concertData.youtube_urls || [],
+      toni_comment: concertData.toni_comment !== undefined ? concertData.toni_comment : null
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating concert in Supabase:', error);
+    throw new Error(error.message || 'Failed to update concert in Supabase database.');
+  }
+
+  return {
+    ...data,
+    youtube_urls: Array.isArray(data.youtube_urls) ? data.youtube_urls : []
+  };
+}
+
 export async function addOrUpdateActivity(
   concertId: string,
   userName: string,

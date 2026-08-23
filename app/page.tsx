@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Music, Calendar, Archive, Sparkles, Heart } from 'lucide-react';
+import { Plus, Music, Calendar, Archive, Sparkles, Heart, Lock, ShieldCheck, LogOut } from 'lucide-react';
 import { Concert, ActionType } from '@/lib/types';
 import { ConcertCard } from '@/components/ConcertCard';
 import { AddConcertModal } from '@/components/AddConcertModal';
+import { AdminLoginModal } from '@/components/AdminLoginModal';
 import { FriendActionModal } from '@/components/FriendActionModal';
 
 export default function HomePage() {
@@ -12,8 +13,14 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
 
+  // Admin state
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+
   // Modals state
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingConcert, setEditingConcert] = useState<Concert | null>(null);
 
   const [friendModalState, setFriendModalState] = useState<{
     isOpen: boolean;
@@ -44,7 +51,36 @@ export default function HomePage() {
 
   useEffect(() => {
     fetchConcerts();
+
+    // Restore admin session if active
+    const savedPass = sessionStorage.getItem('tonicon_admin_password');
+    if (savedPass) {
+      setAdminPassword(savedPass);
+      setIsAdmin(true);
+    }
   }, []);
+
+  const handleAdminAuthSuccess = (pass: string) => {
+    setAdminPassword(pass);
+    setIsAdmin(true);
+    sessionStorage.setItem('tonicon_admin_password', pass);
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdmin(false);
+    setAdminPassword('');
+    sessionStorage.removeItem('tonicon_admin_password');
+  };
+
+  const handleOpenAddModal = () => {
+    setEditingConcert(null);
+    setIsAddModalOpen(true);
+  };
+
+  const handleOpenEditModal = (concert: Concert) => {
+    setEditingConcert(concert);
+    setIsAddModalOpen(true);
+  };
 
   const now = new Date();
 
@@ -86,16 +122,36 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Add Concert Button (Admin) */}
-          <button
-            id="add-concert-btn"
-            onClick={() => setIsAddModalOpen(true)}
-            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 transition-all duration-200 shrink-0"
-          >
-            <Plus className="w-4 h-4 text-white" />
-            <span className="hidden sm:inline">Add a Concert</span>
-            <span className="sm:hidden">Add</span>
-          </button>
+          {/* Admin / Add Concert Buttons */}
+          {!isAdmin ? (
+            <button
+              id="admin-btn"
+              onClick={() => setIsAdminModalOpen(true)}
+              className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl shadow-lg flex items-center justify-center transition-all duration-200 shrink-0"
+              title="Authenticate as Toni Admin"
+            >
+              <Lock className="w-4 h-4 text-indigo-400" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                id="add-concert-btn"
+                onClick={handleOpenAddModal}
+                className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 transition-all duration-200 shrink-0"
+              >
+                <Plus className="w-4 h-4 text-white" />
+                <span>Add Concert</span>
+              </button>
+              <button
+                id="logout-admin-btn"
+                onClick={handleAdminLogout}
+                className="p-2.5 bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-800/80 rounded-xl transition shrink-0"
+                title="Logout Admin Mode"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
         </div>
       </header>
@@ -144,11 +200,12 @@ export default function HomePage() {
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[1, 2].map((i) => (
-              <div key={i} className="h-64 bg-slate-900/60 border border-slate-800/80 rounded-2xl animate-pulse p-5 space-y-4">
-                <div className="h-4 bg-slate-800 rounded w-1/3" />
-                <div className="h-6 bg-slate-800 rounded w-2/3" />
-                <div className="h-4 bg-slate-800 rounded w-1/2" />
-                <div className="h-20 bg-slate-800/50 rounded-xl" />
+              <div key={i} className="h-48 bg-slate-900/50 border border-slate-800 rounded-2xl animate-pulse p-5 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="h-4 bg-slate-800 rounded w-1/3" />
+                  <div className="h-6 bg-slate-800 rounded w-2/3" />
+                </div>
+                <div className="h-10 bg-slate-800 rounded w-full" />
               </div>
             ))}
           </div>
@@ -159,6 +216,8 @@ export default function HomePage() {
                 <ConcertCard
                   key={concert.id}
                   concert={concert}
+                  isAdmin={isAdmin}
+                  onEditConcert={handleOpenEditModal}
                   onOpenActionModal={handleOpenActionModal}
                 />
               ))}
@@ -168,7 +227,7 @@ export default function HomePage() {
               <Sparkles className="w-10 h-10 text-indigo-400 mx-auto mb-3 opacity-60" />
               <h3 className="text-base font-semibold text-white">No upcoming concerts listed yet</h3>
               <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                Click "Add a Concert" above to add the next gig Toni is attending!
+                Click "Add Concert" above to add the next gig Toni is attending!
               </p>
             </div>
           )
@@ -180,6 +239,8 @@ export default function HomePage() {
                   key={concert.id}
                   concert={concert}
                   isPast={true}
+                  isAdmin={isAdmin}
+                  onEditConcert={handleOpenEditModal}
                   onOpenActionModal={handleOpenActionModal}
                 />
               ))}
@@ -198,10 +259,19 @@ export default function HomePage() {
       </div>
 
       {/* Modals */}
+      <AdminLoginModal
+        isOpen={isAdminModalOpen}
+        onClose={() => setIsAdminModalOpen(false)}
+        onSuccess={handleAdminAuthSuccess}
+      />
+
       <AddConcertModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onSuccess={fetchConcerts}
+        adminPassword={adminPassword}
+        onAdminAuthSuccess={handleAdminAuthSuccess}
+        concertToEdit={editingConcert}
       />
 
       <FriendActionModal

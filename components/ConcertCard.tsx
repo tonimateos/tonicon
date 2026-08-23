@@ -1,17 +1,19 @@
 'use client';
 
 import React from 'react';
-import { Calendar, MapPin, ExternalLink, Heart, CheckCircle, MessageSquare, Info } from 'lucide-react';
+import { Calendar, MapPin, ExternalLink, Heart, CheckCircle, MessageSquare, Info, Edit3 } from 'lucide-react';
 import { Concert, ActionType, Activity } from '@/lib/types';
 import { YouTubeEmbed } from './YouTubeEmbed';
 
 interface ConcertCardProps {
   concert: Concert;
   isPast?: boolean;
+  isAdmin?: boolean;
+  onEditConcert?: (concert: Concert) => void;
   onOpenActionModal: (concertId: string, bandName: string, action: ActionType) => void;
 }
 
-export function ConcertCard({ concert, isPast = false, onOpenActionModal }: ConcertCardProps) {
+export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditConcert, onOpenActionModal }: ConcertCardProps) {
   // Format date nicely
   const concertDateObj = new Date(concert.date);
   const formattedDate = concertDateObj.toLocaleDateString('en-GB', {
@@ -26,8 +28,6 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
   });
 
   const activities = concert.activities || [];
-
-
 
   return (
     <div className="relative bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-5 shadow-xl transition-all duration-200 overflow-hidden flex flex-col justify-between">
@@ -55,9 +55,21 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
           </a>
         </div>
 
-        {/* Line 2: (Left) Band Name, (Right) Event Info */}
+        {/* Line 2: (Left) Band Name + Edit Button, (Right) Event Info */}
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold text-white tracking-tight font-display">{concert.band_name}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-white tracking-tight font-display">{concert.band_name}</h2>
+            {isAdmin && onEditConcert && (
+              <button
+                onClick={() => onEditConcert(concert)}
+                className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-[11px] font-semibold rounded-lg flex items-center gap-1 transition shrink-0"
+                title="Edit Concert details"
+              >
+                <Edit3 className="w-3 h-3 text-indigo-400" />
+                <span>Edit</span>
+              </button>
+            )}
+          </div>
 
           {concert.url && (
             <a
