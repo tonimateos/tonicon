@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Music, Calendar, Archive, RefreshCw, Sparkles, Heart } from 'lucide-react';
+import { Plus, Music, Calendar, Archive, Sparkles, Heart } from 'lucide-react';
 import { Concert, ActionType } from '@/lib/types';
 import { ConcertCard } from '@/components/ConcertCard';
 import { AddConcertModal } from '@/components/AddConcertModal';
@@ -68,11 +68,11 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen pb-16">
-      
+
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
-          
+
           {/* Logo / Brand */}
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-pink-500 p-0.5 shadow-lg shadow-indigo-500/20">
@@ -82,9 +82,9 @@ export default function HomePage() {
             </div>
             <div>
               <h1 className="font-extrabold text-lg sm:text-xl text-white tracking-tight font-display flex items-center gap-2">
-                Toni's Concerts
+                ToniCon
               </h1>
-              <p className="text-xs text-slate-400">See upcoming gigs & RSVP with friends</p>
+              <p className="text-xs text-slate-400">Toni is going to...</p>
             </div>
           </div>
 
@@ -104,58 +104,45 @@ export default function HomePage() {
 
       {/* Main Container */}
       <div className="max-w-4xl mx-auto px-4 pt-6 space-y-6">
-        
-        {/* Navigation Tabs & Refresh */}
+
+        {/* Navigation Tabs (Upcoming on Left, Past on Right) */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            
-            {/* Upcoming Tab */}
-            <button
-              id="tab-upcoming"
-              onClick={() => setActiveTab('upcoming')}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
-                activeTab === 'upcoming'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Upcoming</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                activeTab === 'upcoming' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
-              }`}>
-                {upcomingConcerts.length}
-              </span>
-            </button>
-
-            {/* Past Tab */}
-            <button
-              id="tab-past"
-              onClick={() => setActiveTab('past')}
-              className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
-                activeTab === 'past'
-                  ? 'bg-slate-800 text-white shadow-md border border-slate-700'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span>Past Concerts</span>
-              <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
-                activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
-              }`}>
-                {pastConcerts.length}
-              </span>
-            </button>
-
-          </div>
-
+          {/* Upcoming Tab (Left) */}
           <button
-            onClick={fetchConcerts}
-            disabled={loading}
-            className="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl transition"
-            title="Refresh Concerts"
+            id="tab-upcoming"
+            onClick={() => setActiveTab('upcoming')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+              activeTab === 'upcoming'
+                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-400' : ''}`} />
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Upcoming</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+              activeTab === 'upcoming' ? 'bg-indigo-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>
+              {upcomingConcerts.length}
+            </span>
+          </button>
+
+          {/* Past Tab (Right) */}
+          <button
+            id="tab-past"
+            onClick={() => setActiveTab('past')}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all ${
+              activeTab === 'past'
+                ? 'bg-slate-800 text-white shadow-md border border-slate-700'
+                : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Past Concerts</span>
+            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${
+              activeTab === 'past' ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'
+            }`}>
+              {pastConcerts.length}
+            </span>
           </button>
         </div>
 
