@@ -121,15 +121,15 @@ export function ConcertCard({ concert, isPast = false, onOpenActionModal }: Conc
                 }
 
                 return (
-                  <div key={act.id} className="py-1.5 px-3 bg-slate-950/70 border border-slate-800/70 rounded-xl text-xs flex items-center justify-between gap-2 overflow-hidden">
-                    <div className="truncate text-slate-300">
+                  <div key={act.id} className="py-2 px-3 bg-slate-950/70 border border-slate-800/70 rounded-xl text-xs flex items-start justify-between gap-2">
+                    <div className="text-slate-300 whitespace-normal break-words leading-relaxed flex-1">
                       <span className="font-semibold text-white">{act.user_name}</span>{' '}
                       <span className={actionColor}>{actionText}</span>
                       {act.comment_text && (
                         <span className="text-slate-200 italic font-normal">{` "${act.comment_text}"`}</span>
                       )}
                     </div>
-                    <span className="text-[10px] text-slate-500 font-medium shrink-0">on {actDate}</span>
+                    <span className="text-[10px] text-slate-500 font-medium shrink-0 pt-0.5">on {actDate}</span>
                   </div>
                 );
               })}
