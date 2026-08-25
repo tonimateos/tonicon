@@ -98,10 +98,10 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
         {concert.toni_comment && (
           <div className="mt-4 p-3 bg-indigo-950/40 border border-indigo-500/20 rounded-xl text-xs text-indigo-200 flex items-start gap-2.5">
             <Info className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold text-indigo-300 block mb-0.5">Toni's Note:</span>
-              <p className="text-slate-300 leading-relaxed">{concert.toni_comment}</p>
-            </div>
+            <p className="text-slate-300 leading-relaxed">
+              <span className="font-semibold text-indigo-300 mr-1.5">Toni:</span>
+              {concert.toni_comment}
+            </p>
           </div>
         )}
 
