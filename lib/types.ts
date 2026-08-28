@@ -28,3 +28,31 @@ export interface ScrapeResult {
   confidence?: string;
   raw_title?: string;
 }
+
+export interface DiscoverUrl {
+  id: string;
+  url: string;
+  name?: string | null;
+  created_at: string;
+}
+
+export interface DiscoverPreferences {
+  id: string;
+  content: string;
+  updated_at: string;
+}
+
+export type DiscoverEventStatus = 'candidate' | 'interested' | 'rejected';
+
+export interface DiscoverEvent {
+  id: string;
+  event_name: string;
+  venue_name?: string | null;
+  date?: string | null; // ISO String
+  url?: string | null;
+  status: DiscoverEventStatus;
+  rejection_reason?: string | null;
+  source_url?: string | null;
+  created_at: string;
+}
+

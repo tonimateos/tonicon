@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Music, Calendar, Archive, Sparkles, Heart, Lock, ShieldCheck, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { Plus, Music, Calendar, Archive, Sparkles, Heart, Lock, ShieldCheck, LogOut, Compass } from 'lucide-react';
 import { Concert, ActionType } from '@/lib/types';
 import { ConcertCard } from '@/components/ConcertCard';
 import { AddConcertModal } from '@/components/AddConcertModal';
@@ -122,36 +123,47 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Admin / Add Concert Buttons */}
-          {!isAdmin ? (
-            <button
-              id="admin-btn"
-              onClick={() => setIsAdminModalOpen(true)}
-              className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl shadow-lg flex items-center justify-center transition-all duration-200 shrink-0"
-              title="Authenticate as Toni Admin"
+          <div className="flex items-center gap-2">
+            {/* Discover Route Navigation Button */}
+            <Link
+              href="/discover"
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 border border-slate-700/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
             >
-              <Lock className="w-4 h-4 text-indigo-400" />
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
+              <Compass className="w-4 h-4" />
+              <span className="hidden sm:inline">Discover Events</span>
+            </Link>
+
+            {/* Admin / Add Concert Buttons */}
+            {!isAdmin ? (
               <button
-                id="add-concert-btn"
-                onClick={handleOpenAddModal}
-                className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 transition-all duration-200 shrink-0"
+                id="admin-btn"
+                onClick={() => setIsAdminModalOpen(true)}
+                className="p-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 rounded-xl shadow-lg flex items-center justify-center transition-all duration-200 shrink-0"
+                title="Authenticate as Toni Admin"
               >
-                <Plus className="w-4 h-4 text-white" />
-                <span>Add Concert</span>
+                <Lock className="w-4 h-4 text-indigo-400" />
               </button>
-              <button
-                id="logout-admin-btn"
-                onClick={handleAdminLogout}
-                className="p-2.5 bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-800/80 rounded-xl transition shrink-0"
-                title="Logout Admin Mode"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  id="add-concert-btn"
+                  onClick={handleOpenAddModal}
+                  className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-1.5 transition-all duration-200 shrink-0"
+                >
+                  <Plus className="w-4 h-4 text-white" />
+                  <span>Add Concert</span>
+                </button>
+                <button
+                  id="logout-admin-btn"
+                  onClick={handleAdminLogout}
+                  className="p-2.5 bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-800/80 rounded-xl transition shrink-0"
+                  title="Logout Admin Mode"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
 
         </div>
       </header>
