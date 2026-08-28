@@ -47,14 +47,24 @@ export function pruneHtml(html: string): string {
  * Step 1 Debugging helper: Extracts ALL raw events from pruned HTML into structured JSON entries,
  * picking the schema fields that best adapt to that specific source.
  */
+/**
+ * Step 1 Debugging helper: Extracts ALL raw events from pruned HTML into structured JSON entries,
+ * picking the schema fields that best adapt to that specific source.
+ * If previousEvents are provided, Gemini skips events or sub-URLs already present in the previous JSON.
+ */
 export async function extractAllRawEventsFromHtml(
   prunedHtml: string,
-  sourceUrl: string
+  sourceUrl: string,
+  previousEvents?: Array<Record<string, unknown>>
 ): Promise<Array<Record<string, unknown>>> {
   const model = getGeminiModel();
 
-  const prompt = `You are a raw event parser. Analyze the webpage text below and extract ALL events (concerts, meetups, exhibitions, plays, festivals) listed on this page, regardless of user preferences.
+  const prevText = previousEvents && previousEvents.length > 0
+    ? `\nPREVIOUSLY EXTRACTED EVENTS (SKIP THESE IF THEY ARE ALREADY KNOWN / UNCHANGED):\n${JSON.stringify(previousEvents.slice(0, 30), null, 2)}\n`
+    : '';
 
+  const prompt = `You are a raw event parser. Analyze the webpage text below and extract ALL events (concerts, meetups, exhibitions, plays, festivals) listed on this page, regardless of user preferences.
+${prevText}
 SOURCE WEBPAGE URL: ${sourceUrl}
 
 WEBPAGE CONTENT:
@@ -63,7 +73,8 @@ ${prunedHtml}
 INSTRUCTIONS:
 1. Extract every event listed on the page into a structured JSON array.
 2. For each event, select the fields that best capture all details from this particular source (for example: "event_name", "artist_or_performer", "venue_name", "date_and_time", "price_or_ticket_info", "category_or_tags", "event_url").
-3. Return ONLY a valid JSON array of objects. Do NOT wrap in markdown code fences or add conversational text.`;
+3. If previously extracted events are listed above, do not duplicate them if they are unchanged. Focus on new or updated event entries.
+4. Return ONLY a valid JSON array of objects. Do NOT wrap in markdown code fences or add conversational text.`;
 
   const result = await model.generateContent(prompt);
   const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
@@ -258,6 +269,28 @@ export async function deleteDiscoverUrl(id: string): Promise<void> {
     console.error('Error deleting discover_url:', error);
     throw new Error(error.message || 'Failed to delete source URL');
   }
+}
+
+export async function updateDiscoverUrlLastExtracted(
+  id: string,
+  rawEvents: Array<Record<string, unknown>>
+): Promise<DiscoverUrl> {
+  const { data, error } = await supabase
+    .from('discover_urls')
+    .update({
+      last_extracted_json: rawEvents,
+      last_scraped_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating last_extracted_json:', error);
+    throw new Error(error.message || 'Failed to save last extracted JSON');
+  }
+
+  return data;
 }
 
 // --- Preferences ---

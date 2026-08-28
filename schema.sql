@@ -44,8 +44,12 @@ CREATE TABLE IF NOT EXISTS public.discover_urls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     url TEXT NOT NULL,
     name TEXT,
+    last_extracted_json JSONB DEFAULT '[]'::jsonb,
+    last_scraped_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE public.discover_urls ADD COLUMN IF NOT EXISTS last_extracted_json JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.discover_urls ADD COLUMN IF NOT EXISTS last_scraped_at TIMESTAMPTZ;
 
 -- 4. Discover Preferences Table
 CREATE TABLE IF NOT EXISTS public.discover_preferences (

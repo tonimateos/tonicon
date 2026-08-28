@@ -21,7 +21,10 @@ import {
   RefreshCw,
   Archive,
   MessageSquare,
-  Code
+  Code,
+  FileText,
+  Eye,
+  Clock
 } from 'lucide-react';
 import { DiscoverEvent, DiscoverPreferences, DiscoverUrl } from '@/lib/types';
 
@@ -45,11 +48,13 @@ export default function DiscoverPage() {
     isOpen: boolean;
     sourceUrl: DiscoverUrl | null;
     rawEvents: Record<string, unknown>[];
+    isExtracting: boolean;
     isEvaluating: boolean;
   }>({
     isOpen: false,
     sourceUrl: null,
     rawEvents: [],
+    isExtracting: false,
     isEvaluating: false
   });
 
@@ -152,6 +157,16 @@ export default function DiscoverPage() {
   const handleRunScrapeForSource = async (source: DiscoverUrl) => {
     setScrapingUrlId(source.id);
     setScrapeResultMsg(null);
+
+    // Open modal immediately with extracting/loading status
+    setRawDebugModalState({
+      isOpen: true,
+      sourceUrl: source,
+      rawEvents: Array.isArray(source.last_extracted_json) ? source.last_extracted_json : [],
+      isExtracting: true,
+      isEvaluating: false
+    });
+
     try {
       const res = await fetch('/api/discover/extract-raw', {
         method: 'POST',
@@ -165,12 +180,23 @@ export default function DiscoverPage() {
           type: 'error',
           text: data.error || `Scraping failed for ${source.name || source.url}`
         });
+        setRawDebugModalState({
+          isOpen: false,
+          sourceUrl: null,
+          rawEvents: [],
+          isExtracting: false,
+          isEvaluating: false
+        });
       } else {
         const events = data.raw_events || [];
+        if (data.url) {
+          setUrls((prev) => prev.map((u) => (u.id === data.url.id ? data.url : u)));
+        }
         setRawDebugModalState({
           isOpen: true,
-          sourceUrl: source,
+          sourceUrl: data.url || source,
           rawEvents: events,
+          isExtracting: false,
           isEvaluating: false
         });
       }
@@ -179,9 +205,27 @@ export default function DiscoverPage() {
         type: 'error',
         text: `Failed to scrape source ${source.name || source.url}.`
       });
+      setRawDebugModalState({
+        isOpen: false,
+        sourceUrl: null,
+        rawEvents: [],
+        isExtracting: false,
+        isEvaluating: false
+      });
     } finally {
       setScrapingUrlId(null);
     }
+  };
+
+  // View Previously Extracted Raw JSON for a Source URL
+  const handleViewPastJson = (source: DiscoverUrl) => {
+    setRawDebugModalState({
+      isOpen: true,
+      sourceUrl: source,
+      rawEvents: Array.isArray(source.last_extracted_json) ? source.last_extracted_json : [],
+      isExtracting: false,
+      isEvaluating: false
+    });
   };
 
   // Step 2: Send Raw JSON Events to LLM for Match Filtering
@@ -220,7 +264,13 @@ export default function DiscoverPage() {
     } catch (err) {
       setScrapeResultMsg({ type: 'error', text: 'Error sending events to LLM for match filtering.' });
     } finally {
-      setRawDebugModalState({ isOpen: false, sourceUrl: null, rawEvents: [], isEvaluating: false });
+      setRawDebugModalState({
+        isOpen: false,
+        sourceUrl: null,
+        rawEvents: [],
+        isExtracting: false,
+        isEvaluating: false
+      });
     }
   };
 
@@ -867,9 +917,28 @@ export default function DiscoverPage() {
                           <span className="truncate">{u.url}</span>
                           <ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
                         </a>
+                        {u.last_scraped_at && (
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 pt-0.5">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            <span>Last scraped: {new Date(u.last_scraped_at).toLocaleString()}</span>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {/* View Past JSON Button */}
+                        {Array.isArray(u.last_extracted_json) && u.last_extracted_json.length > 0 && (
+                          <button
+                            onClick={() => handleViewPastJson(u)}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium rounded-xl transition flex items-center gap-1.5"
+                            title="View past extracted JSON for this source"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Past JSON ({u.last_extracted_json.length})</span>
+                          </button>
+                        )}
+
+                        {/* Scrape & Discover Button */}
                         <button
                           onClick={() => handleRunScrapeForSource(u)}
                           disabled={scrapingUrlId === u.id || isScraping}
@@ -985,19 +1054,38 @@ export default function DiscoverPage() {
                   </p>
                 </div>
               </div>
-              <span className="px-2.5 py-1 bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 rounded-full text-xs font-semibold">
-                {rawDebugModalState.rawEvents.length} Raw Events Found
+              <span className="px-2.5 py-1 bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 rounded-full text-xs font-semibold flex items-center gap-1.5">
+                {rawDebugModalState.isExtracting ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                    <span>Extracting events...</span>
+                  </>
+                ) : (
+                  <span>{rawDebugModalState.rawEvents.length} Raw Events</span>
+                )}
               </span>
             </div>
 
-            <p className="text-xs text-slate-300">
-              Below is the raw JSON extracted from this web page before preference filtering. Inspect the entries to verify all events were detected cleanly:
-            </p>
+            {rawDebugModalState.isExtracting ? (
+              <div className="py-16 text-center space-y-3 bg-slate-950/60 border border-slate-800/80 rounded-xl p-6">
+                <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mx-auto opacity-80" />
+                <h4 className="text-sm font-semibold text-white">Fetching & Parsing Source Webpage</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Connecting to {rawDebugModalState.sourceUrl?.url}, pruning HTML noise, and extracting raw event details via Gemini...
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-slate-300">
+                  Below is the raw JSON extracted from this web page. Events previously extracted are automatically preserved/skipped to save processing:
+                </p>
 
-            {/* Scrollable JSON Code Box */}
-            <div className="flex-1 overflow-y-auto p-4 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-emerald-300 leading-relaxed max-h-[42vh] select-text">
-              <pre>{JSON.stringify(rawDebugModalState.rawEvents, null, 2)}</pre>
-            </div>
+                {/* Scrollable JSON Code Box */}
+                <div className="flex-1 overflow-y-auto p-4 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-emerald-300 leading-relaxed max-h-[42vh] select-text">
+                  <pre>{JSON.stringify(rawDebugModalState.rawEvents, null, 2)}</pre>
+                </div>
+              </>
+            )}
 
             <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
               <span className="text-xs text-slate-400">
@@ -1007,14 +1095,22 @@ export default function DiscoverPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setRawDebugModalState({ isOpen: false, sourceUrl: null, rawEvents: [], isEvaluating: false })}
+                  onClick={() =>
+                    setRawDebugModalState({
+                      isOpen: false,
+                      sourceUrl: null,
+                      rawEvents: [],
+                      isExtracting: false,
+                      isEvaluating: false
+                    })
+                  }
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl border border-slate-700 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  disabled={rawDebugModalState.isEvaluating}
+                  disabled={rawDebugModalState.isExtracting || rawDebugModalState.isEvaluating}
                   onClick={handleConfirmSendToLLM}
                   className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition"
                 >
@@ -1023,7 +1119,9 @@ export default function DiscoverPage() {
                   ) : (
                     <Sparkles className="w-3.5 h-3.5" />
                   )}
-                  <span>{rawDebugModalState.isEvaluating ? 'Evaluating Matches...' : 'Send to LLM for Match Filtering'}</span>
+                  <span>
+                    {rawDebugModalState.isEvaluating ? 'Evaluating Matches...' : 'Send to LLM for Match Filtering'}
+                  </span>
                 </button>
               </div>
             </div>

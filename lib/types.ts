@@ -33,6 +33,8 @@ export interface DiscoverUrl {
   id: string;
   url: string;
   name?: string | null;
+  last_extracted_json?: Record<string, unknown>[] | null;
+  last_scraped_at?: string | null;
   created_at: string;
 }
 

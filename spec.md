@@ -16,7 +16,10 @@ The goal of this new tab is to help me discover new cultural events (such as con
 - It must be minimal.
 - The main use of in desktop, no need for great mobile experience
 - There is a tab with the functionality to add and remove URLs I want to get my events from.
-- The process of scraping is started on demand per source URL. Once page scraping completes, the system produces a JSON preview where each entry represents a raw extracted event (using fields that best adapt to that source). This raw JSON is presented to the user with a prompt to either "Send to LLM for Match Filtering" or "Cancel", aiding in debugging events that were missed or misclassified.
+- The process of scraping is started on demand per source URL. Upon clicking "Scrape & Discover", a debug modal opens immediately displaying real-time extraction status. When scraping completes, the system produces and stores the raw JSON in the database for that source.
+- Next to each source URL, a "Past JSON" button allows viewing the previously stored JSON at any time without re-scraping.
+- When re-scraping a source, Gemini automatically skips events or sub-URLs that are already present in the previously stored JSON.
+- The extracted JSON is presented to the user with a prompt to either "Send to LLM for Match Filtering" or "Cancel", aiding in debugging events that were missed or misclassified.
 - Events that are already in the list of upcoming events are discarded from potential new matches.
 - Potential matches are presented as a list of proposed cards, where each card has "Yes" / "No" buttons and provides the info required to make a decision, such as:
     - Event Name
