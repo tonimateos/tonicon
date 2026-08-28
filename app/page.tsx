@@ -124,14 +124,16 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Discover Route Navigation Button */}
-            <Link
-              href="/discover"
-              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 border border-slate-700/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
-            >
-              <Compass className="w-4 h-4" />
-              <span className="hidden sm:inline">Discover Events</span>
-            </Link>
+            {/* Admin Only: Discover Route Navigation Button */}
+            {isAdmin && (
+              <Link
+                href="/discover"
+                className="px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 border border-slate-700/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+              >
+                <Compass className="w-4 h-4" />
+                <span className="hidden sm:inline">Discover Events</span>
+              </Link>
+            )}
 
             {/* Admin / Add Concert Buttons */}
             {!isAdmin ? (
