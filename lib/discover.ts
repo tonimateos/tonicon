@@ -28,6 +28,116 @@ export function pruneHtml(html: string): string {
 }
 
 /**
+ * Step 1 Debugging helper: Extracts ALL raw events from pruned HTML into structured JSON entries,
+ * picking the schema fields that best adapt to that specific source.
+ */
+export async function extractAllRawEventsFromHtml(
+  prunedHtml: string,
+  sourceUrl: string
+): Promise<Array<Record<string, unknown>>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('GEMINI_API_KEY is not set. Returning empty raw events list.');
+    return [];
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let model;
+    try {
+      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    } catch {
+      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    }
+
+    const prompt = `You are a raw event parser. Analyze the webpage text below and extract ALL events (concerts, meetups, exhibitions, plays, festivals) listed on this page, regardless of user preferences.
+
+SOURCE WEBPAGE URL: ${sourceUrl}
+
+WEBPAGE CONTENT:
+${prunedHtml}
+
+INSTRUCTIONS:
+1. Extract every event listed on the page into a structured JSON array.
+2. For each event, select the fields that best capture all details from this particular source (for example: "event_name", "artist_or_performer", "venue_name", "date_and_time", "price_or_ticket_info", "category_or_tags", "event_url").
+3. Return ONLY a valid JSON array of objects. Do NOT wrap in markdown code fences or add conversational text.`;
+
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+
+    try {
+      const parsed = JSON.parse(rawText);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (parseErr) {
+      console.error('Failed to parse raw extracted events JSON:', rawText, parseErr);
+    }
+  } catch (err) {
+    console.error('Error in extractAllRawEventsFromHtml:', err);
+  }
+
+  return [];
+}
+
+/**
+ * Step 2: Evaluates raw extracted events against user preferences to find matches.
+ */
+export async function filterEventsWithPreferences(
+  rawEvents: Array<Record<string, unknown>>,
+  userPreferences: string,
+  sourceUrl: string
+): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string }>> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || !rawEvents || rawEvents.length === 0) {
+    return [];
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    let model;
+    try {
+      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    } catch {
+      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    }
+
+    const prompt = `You are a cultural event match evaluator. Compare the following list of raw extracted events against the user's preferences.
+
+USER PREFERENCES:
+${userPreferences || 'No specific preferences specified. Select all reasonable cultural events.'}
+
+RAW EXTRACTED EVENTS (JSON):
+${JSON.stringify(rawEvents, null, 2)}
+
+INSTRUCTIONS:
+1. Filter and return ONLY the events from the list that match or align with the user's preferences.
+2. Format each matching event into a standardized object with:
+   - "event_name": string (Name of the event or artist)
+   - "venue_name": string or null (Venue or location)
+   - "date": string or null (ISO-8601 date string e.g. "2026-10-15T20:00:00Z" or "2026-10-15")
+   - "url": string or null (Direct link if available, otherwise "${sourceUrl}")
+3. Return ONLY a strict JSON array of matching objects. Do NOT wrap in markdown code blocks.`;
+
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+
+    try {
+      const parsed = JSON.parse(rawText);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(item => item && typeof item.event_name === 'string' && item.event_name.trim().length > 0);
+      }
+    } catch (parseErr) {
+      console.error('Failed to parse Gemini match evaluation JSON:', rawText, parseErr);
+    }
+  } catch (err) {
+    console.error('Error in filterEventsWithPreferences:', err);
+  }
+
+  return [];
+}
+
+/**
  * Uses Gemini to parse pruned HTML content against user preferences
  * and extract matching candidate events.
  */

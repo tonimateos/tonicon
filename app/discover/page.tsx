@@ -20,7 +20,8 @@ import {
   Trash2,
   RefreshCw,
   Archive,
-  MessageSquare
+  MessageSquare,
+  Code
 } from 'lucide-react';
 import { DiscoverEvent, DiscoverPreferences, DiscoverUrl } from '@/lib/types';
 
@@ -38,6 +39,19 @@ export default function DiscoverPage() {
   const [isScraping, setIsScraping] = useState<boolean>(false);
   const [scrapingUrlId, setScrapingUrlId] = useState<string | null>(null);
   const [scrapeResultMsg, setScrapeResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Raw extracted JSON debug modal state
+  const [rawDebugModalState, setRawDebugModalState] = useState<{
+    isOpen: boolean;
+    sourceUrl: DiscoverUrl | null;
+    rawEvents: Record<string, unknown>[];
+    isEvaluating: boolean;
+  }>({
+    isOpen: false,
+    sourceUrl: null,
+    rawEvents: [],
+    isEvaluating: false
+  });
 
   // Sub-tab for interested events
   const [interestedSubTab, setInterestedSubTab] = useState<'upcoming' | 'past'>('upcoming');
@@ -134,12 +148,12 @@ export default function DiscoverPage() {
     }
   };
 
-  // Handle On-Demand Scraping for a Single Source URL
+  // Step 1: Handle On-Demand Scraping for a Single Source URL (Extract Raw Events)
   const handleRunScrapeForSource = async (source: DiscoverUrl) => {
     setScrapingUrlId(source.id);
     setScrapeResultMsg(null);
     try {
-      const res = await fetch('/api/discover/scrape', {
+      const res = await fetch('/api/discover/extract-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url_id: source.id })
@@ -149,24 +163,16 @@ export default function DiscoverPage() {
       if (!res.ok) {
         setScrapeResultMsg({
           type: 'error',
-          text: data.error || `Discovery failed for ${source.name || source.url}`
+          text: data.error || `Scraping failed for ${source.name || source.url}`
         });
       } else {
-        const addedCount = data.added || 0;
-        const errs = data.errors || [];
-
-        if (errs.length > 0 && addedCount === 0) {
-          setScrapeResultMsg({ type: 'error', text: errs.join('; ') });
-        } else {
-          setScrapeResultMsg({
-            type: 'success',
-            text: `Discovery complete for "${source.name || source.url}"! Discovered ${addedCount} new potential event match${addedCount === 1 ? '' : 'es'}.`
-          });
-          // Refresh candidates list
-          const candRes = await fetch('/api/discover/events?status=candidate');
-          const candData = await candRes.json();
-          if (candData.events) setCandidates(candData.events);
-        }
+        const events = data.raw_events || [];
+        setRawDebugModalState({
+          isOpen: true,
+          sourceUrl: source,
+          rawEvents: events,
+          isEvaluating: false
+        });
       }
     } catch (err) {
       setScrapeResultMsg({
@@ -175,6 +181,46 @@ export default function DiscoverPage() {
       });
     } finally {
       setScrapingUrlId(null);
+    }
+  };
+
+  // Step 2: Send Raw JSON Events to LLM for Match Filtering
+  const handleConfirmSendToLLM = async () => {
+    if (!rawDebugModalState.sourceUrl) return;
+
+    setRawDebugModalState((prev) => ({ ...prev, isEvaluating: true }));
+    try {
+      const res = await fetch('/api/discover/evaluate-matches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_url: rawDebugModalState.sourceUrl.url,
+          raw_events: rawDebugModalState.rawEvents
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setScrapeResultMsg({
+          type: 'error',
+          text: data.error || 'Failed to evaluate matches with LLM'
+        });
+      } else {
+        const addedCount = data.added || 0;
+        setScrapeResultMsg({
+          type: 'success',
+          text: `Match evaluation complete for "${rawDebugModalState.sourceUrl.name || rawDebugModalState.sourceUrl.url}"! Discovered ${addedCount} candidate match${addedCount === 1 ? '' : 'es'}.`
+        });
+        // Refresh candidates list and switch to Candidates tab
+        const candRes = await fetch('/api/discover/events?status=candidate');
+        const candData = await candRes.json();
+        if (candData.events) setCandidates(candData.events);
+        setActiveTab('candidates');
+      }
+    } catch (err) {
+      setScrapeResultMsg({ type: 'error', text: 'Error sending events to LLM for match filtering.' });
+    } finally {
+      setRawDebugModalState({ isOpen: false, sourceUrl: null, rawEvents: [], isEvaluating: false });
     }
   };
 
@@ -920,6 +966,66 @@ export default function DiscoverPage() {
               >
                 Got it
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Raw Extracted Events JSON Preview & Debug Modal */}
+      {rawDebugModalState.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="max-w-2xl w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-indigo-400">
+                <Code className="w-5 h-5" />
+                <div>
+                  <h3 className="font-bold text-sm text-white">Extracted Raw Events (JSON Debug)</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Source: {rawDebugModalState.sourceUrl?.name || rawDebugModalState.sourceUrl?.url}
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 rounded-full text-xs font-semibold">
+                {rawDebugModalState.rawEvents.length} Raw Events Found
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Below is the raw JSON extracted from this web page before preference filtering. Inspect the entries to verify all events were detected cleanly:
+            </p>
+
+            {/* Scrollable JSON Code Box */}
+            <div className="flex-1 overflow-y-auto p-4 bg-slate-950 border border-slate-800 rounded-xl font-mono text-[11px] text-emerald-300 leading-relaxed max-h-[42vh] select-text">
+              <pre>{JSON.stringify(rawDebugModalState.rawEvents, null, 2)}</pre>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                Send this JSON to Gemini to filter candidate matches against your preferences?
+              </span>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRawDebugModalState({ isOpen: false, sourceUrl: null, rawEvents: [], isEvaluating: false })}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-xl border border-slate-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={rawDebugModalState.isEvaluating}
+                  onClick={handleConfirmSendToLLM}
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition"
+                >
+                  {rawDebugModalState.isEvaluating ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  <span>{rawDebugModalState.isEvaluating ? 'Evaluating Matches...' : 'Send to LLM for Match Filtering'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

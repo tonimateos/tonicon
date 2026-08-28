@@ -16,7 +16,7 @@ The goal of this new tab is to help me discover new cultural events (such as con
 - It must be minimal.
 - The main use of in desktop, no need for great mobile experience
 - There is a tab with the functionality to add and remove URLs I want to get my events from.
-- The process of scraping, filtering, and selecting potential matches must be started on demand with a button.
+- The process of scraping is started on demand per source URL. Once page scraping completes, the system produces a JSON preview where each entry represents a raw extracted event (using fields that best adapt to that source). This raw JSON is presented to the user with a prompt to either "Send to LLM for Match Filtering" or "Cancel", aiding in debugging events that were missed or misclassified.
 - Events that are already in the list of upcoming events are discarded from potential new matches.
 - Potential matches are presented as a list of proposed cards, where each card has "Yes" / "No" buttons and provides the info required to make a decision, such as:
     - Event Name
