@@ -3,7 +3,23 @@ import * as cheerio from 'cheerio';
 import { supabase } from './supabase';
 import { DiscoverEvent, DiscoverEventStatus, DiscoverPreferences, DiscoverUrl } from './types';
 
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+function getGeminiModel() {
+  const rawKey = process.env.GEMINI_API_KEY || '';
+  const apiKey = rawKey.replace(/^["']|["']$/g, '').trim();
+
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set in .env.local');
+  }
+
+  const rawModel = (process.env.GEMINI_MODEL || '').replace(/^["']|["']$/g, '').trim();
+  const modelName =
+    rawModel && rawModel !== 'gemini-2.0-flash' && rawModel !== 'gemini-1.5-flash'
+      ? rawModel
+      : 'gemini-2.5-flash';
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({ model: modelName });
+}
 
 /**
  * Strips noise, script tags, styling, SVGs, headers/footers from raw HTML
@@ -35,22 +51,9 @@ export async function extractAllRawEventsFromHtml(
   prunedHtml: string,
   sourceUrl: string
 ): Promise<Array<Record<string, unknown>>> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('GEMINI_API_KEY is not set. Returning empty raw events list.');
-    return [];
-  }
+  const model = getGeminiModel();
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    let model;
-    try {
-      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    } catch {
-      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    }
-
-    const prompt = `You are a raw event parser. Analyze the webpage text below and extract ALL events (concerts, meetups, exhibitions, plays, festivals) listed on this page, regardless of user preferences.
+  const prompt = `You are a raw event parser. Analyze the webpage text below and extract ALL events (concerts, meetups, exhibitions, plays, festivals) listed on this page, regardless of user preferences.
 
 SOURCE WEBPAGE URL: ${sourceUrl}
 
@@ -62,19 +65,17 @@ INSTRUCTIONS:
 2. For each event, select the fields that best capture all details from this particular source (for example: "event_name", "artist_or_performer", "venue_name", "date_and_time", "price_or_ticket_info", "category_or_tags", "event_url").
 3. Return ONLY a valid JSON array of objects. Do NOT wrap in markdown code fences or add conversational text.`;
 
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const result = await model.generateContent(prompt);
+  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
-    try {
-      const parsed = JSON.parse(rawText);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    } catch (parseErr) {
-      console.error('Failed to parse raw extracted events JSON:', rawText, parseErr);
+  try {
+    const parsed = JSON.parse(rawText);
+    if (Array.isArray(parsed)) {
+      return parsed;
     }
-  } catch (err) {
-    console.error('Error in extractAllRawEventsFromHtml:', err);
+  } catch (parseErr) {
+    console.error('Failed to parse raw extracted events JSON:', rawText, parseErr);
+    throw new Error(`Gemini returned invalid JSON: ${rawText.slice(0, 200)}`);
   }
 
   return [];
@@ -88,21 +89,13 @@ export async function filterEventsWithPreferences(
   userPreferences: string,
   sourceUrl: string
 ): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string }>> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || !rawEvents || rawEvents.length === 0) {
+  if (!rawEvents || rawEvents.length === 0) {
     return [];
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    let model;
-    try {
-      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    } catch {
-      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    }
+  const model = getGeminiModel();
 
-    const prompt = `You are a cultural event match evaluator. Compare the following list of raw extracted events against the user's preferences.
+  const prompt = `You are a cultural event match evaluator. Compare the following list of raw extracted events against the user's preferences.
 
 USER PREFERENCES:
 ${userPreferences || 'No specific preferences specified. Select all reasonable cultural events.'}
@@ -119,19 +112,16 @@ INSTRUCTIONS:
    - "url": string or null (Direct link if available, otherwise "${sourceUrl}")
 3. Return ONLY a strict JSON array of matching objects. Do NOT wrap in markdown code blocks.`;
 
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const result = await model.generateContent(prompt);
+  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
-    try {
-      const parsed = JSON.parse(rawText);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(item => item && typeof item.event_name === 'string' && item.event_name.trim().length > 0);
-      }
-    } catch (parseErr) {
-      console.error('Failed to parse Gemini match evaluation JSON:', rawText, parseErr);
+  try {
+    const parsed = JSON.parse(rawText);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(item => item && typeof item.event_name === 'string' && item.event_name.trim().length > 0);
     }
-  } catch (err) {
-    console.error('Error in filterEventsWithPreferences:', err);
+  } catch (parseErr) {
+    console.error('Failed to parse Gemini match evaluation JSON:', rawText, parseErr);
   }
 
   return [];
@@ -146,22 +136,9 @@ export async function extractEventsWithGemini(
   userPreferences: string,
   sourceUrl: string
 ): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string }>> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('GEMINI_API_KEY is not set. Returning empty event candidates.');
-    return [];
-  }
+  const model = getGeminiModel();
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    let model;
-    try {
-      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    } catch {
-      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    }
-
-    const prompt = `You are a cultural event discovery assistant. Analyze the webpage text below and select cultural events (concerts, meetups, theaters, expositions, festivals) that match or align with the user's preferences.
+  const prompt = `You are a cultural event discovery assistant. Analyze the webpage text below and select cultural events (concerts, meetups, theaters, expositions, festivals) that match or align with the user's preferences.
 
 USER PREFERENCES:
 ${userPreferences || 'No specific preferences specified yet. Select interesting cultural events, concerts, meetups, expositions, and theaters.'}
@@ -183,19 +160,16 @@ INSTRUCTIONS:
 
 If no matching upcoming events are found, return empty array [].`;
 
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const result = await model.generateContent(prompt);
+  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
-    try {
-      const parsed = JSON.parse(rawText);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(item => item && typeof item.event_name === 'string' && item.event_name.trim().length > 0);
-      }
-    } catch (parseErr) {
-      console.error('Failed to parse Gemini output as JSON:', rawText, parseErr);
+  try {
+    const parsed = JSON.parse(rawText);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(item => item && typeof item.event_name === 'string' && item.event_name.trim().length > 0);
     }
-  } catch (err) {
-    console.error('Error calling Gemini for event extraction:', err);
+  } catch (parseErr) {
+    console.error('Failed to parse Gemini output as JSON:', rawText, parseErr);
   }
 
   return [];
@@ -209,19 +183,12 @@ export async function generatePreferenceRule(
   event: { event_name: string; venue_name?: string | null; date?: string | null },
   rejectionReason: string
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || !rejectionReason || !rejectionReason.trim()) {
-    return `Dislikes events like "${event.event_name}" (${rejectionReason || 'No reason specified'}).`;
+  if (!rejectionReason || !rejectionReason.trim()) {
+    return `Dislikes events like "${event.event_name}".`;
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    let model;
-    try {
-      model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-    } catch {
-      model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    }
+    const model = getGeminiModel();
 
     const prompt = `The user rejected a proposed cultural event with a specific reason. Formulate a concise, clear preference rule to add to the user's preference list.
 
@@ -453,6 +420,7 @@ export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ adde
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         },
+        signal: AbortSignal.timeout(15000),
         cache: 'no-store'
       });
 

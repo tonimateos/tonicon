@@ -119,7 +119,7 @@ export default function HomePage() {
               <h1 className="font-extrabold text-lg sm:text-xl text-white tracking-tight font-display flex items-center gap-2">
                 Tonicon
               </h1>
-              <p className="text-xs text-slate-400">Toni is going to these concerts...</p>
+              <p className="text-xs text-slate-400">Toni is going to these concerts. If you'd like to join me in one, WhatsApp me!</p>
             </div>
           </div>
 
