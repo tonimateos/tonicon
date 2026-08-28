@@ -1,41 +1,45 @@
-# A page for my concerts
+# A new route in the URL to discover new events
 
-The goal of the page is to:
+The goal of this new tab is to help me discover new cultural events (such as concerts, meetups, theaters, expositions) by:
 
-- Let myself and my friends know which concerts I am going to easily
-- See info about each of those concerts
-- Allow friends to easily say that they are interested, or that they are going to
-- Allow myself to add new concerts that I am going to
+- understanding my preferences
+- scrapping a set of URLs where I normally get info about different events
+- selecting those that may match my preferences
+- for every selected potential match, ask if I'm interested
+- if interested, add it to a list of future event's I'm interested
+- if not interested, ask why, and use the answer to refine the preferences.
+
 
 # Details
 
+- It must be accessible at a different route than the concerts page (at `/discover`). It is a self-contained application entirely isolated within `/discover` (interested events remain strictly on `/discover`'s Interested tab, with no connection or importing to the Concerts page), co-located in the same project to save deployment costs.
 - It must be minimal.
-- It must be easy to use on mobile.
-- Concerts are sorted by date
-- There is no need to allow for a "search" feature
-- For each concert display:
+- The main use of in desktop, no need for great mobile experience
+- There is a tab with the functionality to add and remove URLs I want to get my events from.
+- The process of scraping, filtering, and selecting potential matches must be started on demand with a button.
+- Events that are already in the list of upcoming events are discarded from potential new matches.
+- Potential matches are presented as a list of proposed cards, where each card has "Yes" / "No" buttons and provides the info required to make a decision, such as:
+    - Event Name
+    - Venue location, ideally clickable, opening a Google Maps new tab.
     - Date
-    - Band Name
-    - Name of the venue
-    - A link to the 2-3 most seen youtube videos of the band
-    - A button to say "I'm interested", one to say "I'm going", one to "Add any comment you want". If you're going and want to change opinion, a button to remove the I'm going.
-    - When clicking one of this it asks "How are you? Add your name or a pseudonym that Toni will understand".
-    - An ordered list of actions "[name] said [action] on [date]"
-    - If Toni added a comment when adding the concert, disply this comment too.
-    - Friends don't need a password. Just a minimal "proof you are not a bot" thing appears after entering their name. It's enough to enter a number for instance, and check it against a simple math question.
+    - A link to the event
+    - A button to say "Yes" or "No" to I'm interested
+    - On click on "No", a field opens to ask why. The user has the option to skip providing the reason, in which case, the proposal is just rejected, and no new reason is created or added to the preferences. 
+    - On click on "Yes", the event is added to the list of upcoming events.
+    
 
-- Finally at the top of the page there is a button "Add a concert" that opens a form to add a new concert. When clicked, it asks for a a password to make sure it's Toni. This password is secret. This form contains:
-    - a link field where all info about the concert will be scraped from, this link points to a place where all info is available except for the youtube videos. Gemini will helps parse this page and get the date, name and venue.
-    - a field to add up to 3 youtube videos (by default empty)
-    - a text field for any additional comment from Toni
-    - a button "Add Concert"
+- There is a way to access the current preferences, which is basically a text that can contain many things. For example, a copy-pasted set of songs from a Spotify playlist, so my music taste is known. Also, my own wording for preferences on music, cultural events, etc. A way to edit these preferences manually, including modyifing and adding to them.
 
-- Past concerts are moved to a different tab. These past concerts are not editable any more.
+- When saying No to an event, the event details and reason (e.g. "Too expensive", "Don't like this venue", "Wrong music genre") are sent to Gemini, which produces a suggested extra preference rule (for example, if the reason is "Too expensive", Gemini suggests something like "The user considers an event of type [THIS TYPE] too expensive") that is presented to the user for confirmation before saving.
+
+- A tab where I can see the upcoming events I'm interested in, and one for those already past.
+
 
 # Architecture
 
-- Next.js as framework full-stack (React for frontend and API Routes in Node.js for backend).
-- Supabase DB as external database (campaign state, player stats, etc.). I have an account, the keys will be in an .env file.
+- Like the main concerts code:
+    - Next.js as framework full-stack (React for frontend and API Routes in Node.js for backend).
+    - Supabase DB as external database (preferences, events, etc.)
 - DigitalOcean App as server deployment.
-- I have an Gemini account, data will be in an .env file
+- Gemini API key (`GEMINI_API_KEY`) and default model (`GEMINI_MODEL=gemini-2.0-flash`) configured in `.env` / `.env.local`.
 
