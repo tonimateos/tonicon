@@ -36,6 +36,7 @@ export default function DiscoverPage() {
 
   // Scrape state
   const [isScraping, setIsScraping] = useState<boolean>(false);
+  const [scrapingUrlId, setScrapingUrlId] = useState<string | null>(null);
   const [scrapeResultMsg, setScrapeResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Sub-tab for interested events
@@ -99,7 +100,7 @@ export default function DiscoverPage() {
     loadData();
   }, []);
 
-  // Handle On-Demand Scraping
+  // Handle On-Demand Scraping (All Sources)
   const handleRunScrape = async () => {
     setIsScraping(true);
     setScrapeResultMsg(null);
@@ -130,6 +131,50 @@ export default function DiscoverPage() {
       setScrapeResultMsg({ type: 'error', text: 'Failed to run on-demand discovery.' });
     } finally {
       setIsScraping(false);
+    }
+  };
+
+  // Handle On-Demand Scraping for a Single Source URL
+  const handleRunScrapeForSource = async (source: DiscoverUrl) => {
+    setScrapingUrlId(source.id);
+    setScrapeResultMsg(null);
+    try {
+      const res = await fetch('/api/discover/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url_id: source.id })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setScrapeResultMsg({
+          type: 'error',
+          text: data.error || `Discovery failed for ${source.name || source.url}`
+        });
+      } else {
+        const addedCount = data.added || 0;
+        const errs = data.errors || [];
+
+        if (errs.length > 0 && addedCount === 0) {
+          setScrapeResultMsg({ type: 'error', text: errs.join('; ') });
+        } else {
+          setScrapeResultMsg({
+            type: 'success',
+            text: `Discovery complete for "${source.name || source.url}"! Discovered ${addedCount} new potential event match${addedCount === 1 ? '' : 'es'}.`
+          });
+          // Refresh candidates list
+          const candRes = await fetch('/api/discover/events?status=candidate');
+          const candData = await candRes.json();
+          if (candData.events) setCandidates(candData.events);
+        }
+      }
+    } catch (err) {
+      setScrapeResultMsg({
+        type: 'error',
+        text: `Failed to scrape source ${source.name || source.url}.`
+      });
+    } finally {
+      setScrapingUrlId(null);
     }
   };
 
@@ -355,17 +400,6 @@ export default function DiscoverPage() {
               <p className="text-xs text-slate-400">Scrape, evaluate, and discover new cultural events with Gemini</p>
             </div>
           </div>
-
-          {/* On-Demand Scrape Action Button */}
-          <button
-            id="scrape-btn"
-            onClick={handleRunScrape}
-            disabled={isScraping}
-            className="px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-500/25 flex items-center gap-2 transition-all shrink-0"
-          >
-            <RefreshCw className={`w-4 h-4 ${isScraping ? 'animate-spin' : ''}`} />
-            <span>{isScraping ? 'Discovering Events...' : 'Scrape & Discover'}</span>
-          </button>
         </div>
       </header>
 
@@ -789,13 +823,25 @@ export default function DiscoverPage() {
                         </a>
                       </div>
 
-                      <button
-                        onClick={() => handleDeleteSourceUrl(u.id)}
-                        className="p-2 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700 rounded-lg transition shrink-0"
-                        title="Delete Source URL"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleRunScrapeForSource(u)}
+                          disabled={scrapingUrlId === u.id || isScraping}
+                          className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white font-semibold text-xs rounded-xl shadow flex items-center gap-1.5 transition"
+                          title="Scrape & Discover Events from this source"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${scrapingUrlId === u.id ? 'animate-spin' : ''}`} />
+                          <span>{scrapingUrlId === u.id ? 'Scraping...' : 'Scrape & Discover'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteSourceUrl(u.id)}
+                          className="p-2 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700 rounded-xl transition"
+                          title="Delete Source URL"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

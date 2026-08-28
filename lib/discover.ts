@@ -316,8 +316,11 @@ export async function updateDiscoverEventStatus(
  * 3. Scrape, prune HTML, and extract new candidate events via Gemini.
  * 4. Save candidates into discover_events table.
  */
-export async function runOnDemandDiscovery(): Promise<{ added: number; errors: string[] }> {
-  const urls = await getDiscoverUrls();
+export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ added: number; errors: string[] }> {
+  let urls = await getDiscoverUrls();
+  if (sourceUrlId) {
+    urls = urls.filter(u => u.id === sourceUrlId);
+  }
   const preferences = await getDiscoverPreferences();
   const existingEvents = await getDiscoverEvents();
 
@@ -330,7 +333,7 @@ export async function runOnDemandDiscovery(): Promise<{ added: number; errors: s
   const errors: string[] = [];
 
   if (urls.length === 0) {
-    return { added: 0, errors: ['No source URLs configured. Please add event sources in the Sources tab.'] };
+    return { added: 0, errors: ['No matching source URL found.'] };
   }
 
   for (const src of urls) {
