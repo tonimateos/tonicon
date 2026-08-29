@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getDiscoverUrls,
-  pruneHtml,
-  extractAllRawEventsFromHtml,
+  extractAllRawEventsAlternativeD,
   updateDiscoverUrlLastExtracted
 } from '@/lib/discover';
 
@@ -22,45 +21,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Source URL not found' }, { status: 404 });
     }
 
-    const res = await fetch(targetUrl.url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      },
-      signal: AbortSignal.timeout(15000),
-      cache: 'no-store'
-    });
-
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: `Failed to fetch URL ${targetUrl.url} (HTTP status: ${res.status})` },
-        { status: 502 }
-      );
-    }
-
-    const rawHtml = await res.text();
-    const pruned = pruneHtml(rawHtml);
-
-    // Pass previous JSON to skip already extracted / unchanged events
     const previousEvents = Array.isArray(targetUrl.last_extracted_json)
       ? targetUrl.last_extracted_json
       : undefined;
 
-    const rawEvents = await extractAllRawEventsFromHtml(pruned, targetUrl.url, previousEvents);
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const sendEvent = (data: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
 
-    // Combine or update with newly extracted raw events
-    const finalRawEvents =
-      previousEvents && previousEvents.length > 0 && rawEvents.length === 0
-        ? previousEvents
-        : rawEvents;
+        try {
+          const finalRawEvents = await extractAllRawEventsAlternativeD(
+            targetUrl.url,
+            previousEvents,
+            (progress) => {
+              sendEvent(progress);
+            }
+          );
 
-    // Save newly extracted JSON to DB for this source
-    const updatedUrl = await updateDiscoverUrlLastExtracted(targetUrl.id, finalRawEvents);
+          // Save final extracted JSON in Supabase
+          const updatedUrl = await updateDiscoverUrlLastExtracted(targetUrl.id, finalRawEvents);
 
-    return NextResponse.json({
-      url: updatedUrl,
-      raw_events: finalRawEvents
+          sendEvent({
+            type: 'complete',
+            url: updatedUrl,
+            raw_events: finalRawEvents
+          });
+        } catch (err) {
+          sendEvent({
+            type: 'error',
+            message: err instanceof Error ? err.message : String(err)
+          });
+        } finally {
+          controller.close();
+        }
+      }
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive'
+      }
     });
   } catch (error) {
     console.error('API Error POST /api/discover/extract-raw:', error);

@@ -84,3 +84,17 @@ CREATE POLICY "Allow public all access to discover_urls" ON public.discover_urls
 CREATE POLICY "Allow public all access to discover_preferences" ON public.discover_preferences FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public all access to discover_events" ON public.discover_events FOR ALL USING (true) WITH CHECK (true);
 
+-- 6. Discover Crawled Sublinks Table (for crawler deduplication)
+CREATE TABLE IF NOT EXISTS public.discover_crawled_sublinks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source_url TEXT NOT NULL,
+    sublink_url TEXT NOT NULL,
+    crawled_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(source_url, sublink_url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_crawled_sublinks_source ON public.discover_crawled_sublinks (source_url);
+ALTER TABLE public.discover_crawled_sublinks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public all access to discover_crawled_sublinks" ON public.discover_crawled_sublinks FOR ALL USING (true) WITH CHECK (true);
+
+

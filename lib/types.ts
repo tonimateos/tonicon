@@ -58,3 +58,11 @@ export interface DiscoverEvent {
   created_at: string;
 }
 
+export interface DiscoverCrawledSublink {
+  id: string;
+  source_url: string;
+  sublink_url: string;
+  crawled_at: string;
+}
+
+
