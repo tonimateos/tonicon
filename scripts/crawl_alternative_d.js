@@ -62,35 +62,65 @@ async function run() {
   console.log(`📄 Page Title: "${mainTitle}"`);
 
   // Extract all event sublinks from the DOM structure
-  console.log('\n🔍 Discovering event sublinks from HTML DOM structure...');
+  console.log('\n🔍 Discovering event sublinks from HTML DOM structure (with pagination)...');
   const discoveredLinks = new Set();
 
-  $main('a[href]').each((_, el) => {
-    const href = $main(el).attr('href');
-    if (!href) return;
+  const pagesToCrawl = [targetUrl];
+  for (let p = 2; p <= 5; p++) {
+    const pageUrl = targetUrl.includes('?') ? `${targetUrl}&page=${p}` : `${targetUrl}?page=${p}`;
+    pagesToCrawl.push(pageUrl);
+  }
 
+  for (let pIdx = 0; pIdx < pagesToCrawl.length; pIdx++) {
+    const currentFetchUrl = pagesToCrawl[pIdx];
     try {
-      const absUrl = new URL(href, targetUrl).href;
-      // Filter out non-event links (nav, pagination, footer, images, etc.)
-      const isEventLink =
-        absUrl !== targetUrl &&
-        !absUrl.endsWith('#') &&
-        !absUrl.includes('wp-login') &&
-        !absUrl.includes('cart') &&
-        !absUrl.includes('.png') &&
-        !absUrl.includes('.jpg') &&
-        !absUrl.includes('/ca/') &&
-        !absUrl.includes('/es/') &&
-        (absUrl.includes('/agenda/') ||
-          absUrl.includes('/event/') ||
-          absUrl.includes('/concierto/') ||
-          absUrl.includes('lanaubarcelona.es/en/agenda/'));
+      const pageHtml = pIdx === 0 ? mainHtml : await fetchPage(currentFetchUrl);
+      const $page = cheerio.load(pageHtml);
+      let pageFoundCount = 0;
 
-      if (isEventLink) {
-        discoveredLinks.add(absUrl);
+      $page('a[href]').each((_, el) => {
+        const href = $page(el).attr('href');
+        if (!href) return;
+
+        try {
+          const absUrl = new URL(href, currentFetchUrl).href;
+          const cleanAbsUrl = absUrl.split('#')[0];
+
+          const isEventLink =
+            cleanAbsUrl !== targetUrl &&
+            !cleanAbsUrl.endsWith('#') &&
+            !cleanAbsUrl.includes('wp-login') &&
+            !cleanAbsUrl.includes('cart') &&
+            !cleanAbsUrl.includes('.png') &&
+            !cleanAbsUrl.includes('.jpg') &&
+            !cleanAbsUrl.includes('/cookies') &&
+            !cleanAbsUrl.includes('/contacto') &&
+            !cleanAbsUrl.includes('/nosotros') &&
+            !cleanAbsUrl.includes('/privacidad') &&
+            !cleanAbsUrl.includes('/legal') &&
+            !cleanAbsUrl.includes('/ciclos') &&
+            !cleanAbsUrl.includes('/clubs') &&
+            !cleanAbsUrl.includes('/noticias') &&
+            (cleanAbsUrl.includes('/agenda/') ||
+              cleanAbsUrl.includes('/event/') ||
+              cleanAbsUrl.includes('/evento/') ||
+              cleanAbsUrl.includes('/concierto/') ||
+              cleanAbsUrl.includes('/programacion/'));
+
+          if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {
+            discoveredLinks.add(cleanAbsUrl);
+            pageFoundCount++;
+          }
+        } catch {}
+      });
+
+      if (pIdx > 0 && pageFoundCount === 0) {
+        break;
       }
-    } catch {}
-  });
+    } catch {
+      break;
+    }
+  }
 
   const sublinks = Array.from(discoveredLinks);
   console.log(`✅ Discovered ${sublinks.length} distinct event sublink(s):\n`);

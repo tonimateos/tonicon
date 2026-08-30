@@ -140,35 +140,81 @@ export async function extractAllRawEventsAlternativeD(
   const mainHtml = await res.text();
   const $main = cheerio.load(mainHtml);
 
-  // 1. Discover all sublinks matching event patterns
+  // 1. Discover all sublinks matching event patterns across up to 5 paginated pages
   const discoveredLinks = new Set<string>();
   const parsedSourceUrl = new URL(sourceUrl);
 
-  $main('a[href]').each((_, el) => {
-    const href = $main(el).attr('href');
-    if (!href) return;
+  const pagesToCrawl = [sourceUrl];
+  // Check if target URL supports pagination (e.g. ?page=1)
+  for (let p = 2; p <= 5; p++) {
+    const pageUrl = sourceUrl.includes('?')
+      ? `${sourceUrl}&page=${p}`
+      : `${sourceUrl}?page=${p}`;
+    pagesToCrawl.push(pageUrl);
+  }
 
+  for (let pIdx = 0; pIdx < pagesToCrawl.length; pIdx++) {
+    const currentFetchUrl = pagesToCrawl[pIdx];
     try {
-      const absUrl = new URL(href, sourceUrl).href;
-      const isEventLink =
-        absUrl !== sourceUrl &&
-        !absUrl.endsWith('#') &&
-        !absUrl.includes('wp-login') &&
-        !absUrl.includes('cart') &&
-        !absUrl.includes('.png') &&
-        !absUrl.includes('.jpg') &&
-        !absUrl.includes('/ca/') &&
-        !absUrl.includes('/es/') &&
-        (absUrl.includes('/agenda/') ||
-          absUrl.includes('/event/') ||
-          absUrl.includes('/concierto/') ||
-          absUrl.includes(parsedSourceUrl.hostname));
+      const pageHtml = pIdx === 0 ? mainHtml : await (await fetch(currentFetchUrl, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+        },
+        signal: AbortSignal.timeout(10000),
+        cache: 'no-store'
+      })).text();
 
-      if (isEventLink) {
-        discoveredLinks.add(absUrl);
+      const $page = cheerio.load(pageHtml);
+      let pageFoundCount = 0;
+
+      $page('a[href]').each((_, el) => {
+        const href = $page(el).attr('href');
+        if (!href) return;
+
+        try {
+          const absUrl = new URL(href, currentFetchUrl).href;
+          const cleanAbsUrl = absUrl.split('#')[0];
+
+          const isEventLink =
+            cleanAbsUrl !== sourceUrl &&
+            !cleanAbsUrl.endsWith('#') &&
+            !cleanAbsUrl.includes('wp-login') &&
+            !cleanAbsUrl.includes('cart') &&
+            !cleanAbsUrl.includes('.png') &&
+            !cleanAbsUrl.includes('.jpg') &&
+            !cleanAbsUrl.includes('/cookies') &&
+            !cleanAbsUrl.includes('/contacto') &&
+            !cleanAbsUrl.includes('/nosotros') &&
+            !cleanAbsUrl.includes('/privacidad') &&
+            !cleanAbsUrl.includes('/legal') &&
+            !cleanAbsUrl.includes('/ciclos') &&
+            !cleanAbsUrl.includes('/clubs') &&
+            !cleanAbsUrl.includes('/noticias') &&
+            !cleanAbsUrl.includes('/ca/') &&
+            (cleanAbsUrl.includes('/agenda/') ||
+              cleanAbsUrl.includes('/event/') ||
+              cleanAbsUrl.includes('/evento/') ||
+              cleanAbsUrl.includes('/concierto/') ||
+              cleanAbsUrl.includes('/programacion/'));
+
+          if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {
+            discoveredLinks.add(cleanAbsUrl);
+            pageFoundCount++;
+          }
+        } catch {}
+      });
+
+      // Stop fetching further pages if no new events were found on page > 1
+      if (pIdx > 0 && pageFoundCount === 0) {
+        break;
       }
-    } catch {}
-  });
+    } catch {
+      break;
+    }
+  }
 
   const allSublinks = Array.from(discoveredLinks);
 
@@ -871,14 +917,14 @@ export async function updateDiscoverEventStatus(
 export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ added: number; errors: string[] }> {
   let urls = await getDiscoverUrls();
   if (sourceUrlId) {
-    urls = urls.filter(u => u.id === sourceUrlId);
+    urls = urls.filter((u) => u.id === sourceUrlId);
   }
   const preferences = await getDiscoverPreferences();
   const existingEvents = await getDiscoverEvents();
 
   // Create a normalized set of existing event names/urls to prevent duplicates
   const existingSet = new Set(
-    existingEvents.map(e => `${e.event_name.toLowerCase().trim()}|${(e.date || '').slice(0, 10)}`)
+    existingEvents.map((e) => `${e.event_name.toLowerCase().trim()}|${(e.date || '').slice(0, 10)}`)
   );
 
   let totalAdded = 0;
@@ -890,26 +936,16 @@ export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ adde
 
   for (const src of urls) {
     try {
-      const res = await fetch(src.url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        },
-        signal: AbortSignal.timeout(15000),
-        cache: 'no-store'
-      });
+      const previousEvents = Array.isArray(src.last_extracted_json)
+        ? src.last_extracted_json
+        : undefined;
 
-      if (!res.ok) {
-        errors.push(`Failed to fetch ${src.url} (Status: ${res.status})`);
-        continue;
-      }
+      const rawEvents = await extractAllRawEventsAlternativeD(src.url, previousEvents);
+      await updateDiscoverUrlLastExtracted(src.id, rawEvents);
 
-      const rawHtml = await res.text();
-      const pruned = pruneHtml(rawHtml);
+      const matches = await filterEventsWithPreferences(rawEvents, preferences.content, src.url);
 
-      const extracted = await extractEventsWithGemini(pruned, preferences.content, src.url);
-
-      for (const item of extracted) {
+      for (const item of matches) {
         const key = `${item.event_name.toLowerCase().trim()}|${(item.date || '').slice(0, 10)}`;
         if (!existingSet.has(key)) {
           existingSet.add(key);
