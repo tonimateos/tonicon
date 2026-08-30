@@ -107,7 +107,7 @@ async function discoverWpJsonEventLinks(origin: string): Promise<string[]> {
   const links = new Set<string>();
 
   try {
-    const endpointKeys: string[] = ['event', 'events', 'esdeveniment', 'esdeveniments', 'agenda', 'concierto', 'concerts', 'posts'];
+    const endpointKeys: string[] = ['event', 'events', 'esdeveniment', 'esdeveniments', 'agenda', 'concierto', 'conciertos', 'concert', 'concerts', 'posts'];
 
     // 1. Check WP Types endpoint to discover registered event post type keys
     try {
@@ -274,6 +274,12 @@ export async function extractAllRawEventsAlternativeD(
           const absUrl = new URL(href, currentFetchUrl).href;
           const cleanAbsUrl = absUrl.split('#')[0];
 
+          const isSubpathOfSource =
+            cleanAbsUrl.startsWith(sourceUrl.endsWith('/') ? sourceUrl : `${sourceUrl}/`) &&
+            cleanAbsUrl !== sourceUrl &&
+            cleanAbsUrl !== `${sourceUrl}/` &&
+            !cleanAbsUrl.includes('/page/');
+
           const isEventLink =
             cleanAbsUrl !== sourceUrl &&
             !cleanAbsUrl.endsWith('#') &&
@@ -281,6 +287,9 @@ export async function extractAllRawEventsAlternativeD(
             !cleanAbsUrl.includes('cart') &&
             !cleanAbsUrl.includes('.png') &&
             !cleanAbsUrl.includes('.jpg') &&
+            !cleanAbsUrl.includes('.jpeg') &&
+            !cleanAbsUrl.includes('.webp') &&
+            !cleanAbsUrl.includes('.svg') &&
             !cleanAbsUrl.includes('/cookies') &&
             !cleanAbsUrl.includes('/contacto') &&
             !cleanAbsUrl.includes('/nosotros') &&
@@ -289,10 +298,16 @@ export async function extractAllRawEventsAlternativeD(
             !cleanAbsUrl.includes('/ciclos') &&
             !cleanAbsUrl.includes('/clubs') &&
             !cleanAbsUrl.includes('/noticias') &&
-            (cleanAbsUrl.includes('/agenda/') ||
+            (isSubpathOfSource ||
+              cleanAbsUrl.includes('/agenda/') ||
               cleanAbsUrl.includes('/event/') ||
+              cleanAbsUrl.includes('/events/') ||
               cleanAbsUrl.includes('/evento/') ||
+              cleanAbsUrl.includes('/eventos/') ||
               cleanAbsUrl.includes('/concierto/') ||
+              cleanAbsUrl.includes('/conciertos/') ||
+              cleanAbsUrl.includes('/esdeveniment/') ||
+              cleanAbsUrl.includes('/esdeveniments/') ||
               cleanAbsUrl.includes('/programacio/'));
 
           if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {
@@ -321,8 +336,10 @@ export async function extractAllRawEventsAlternativeD(
 
   const allSublinks = Array.from(discoveredLinks);
 
-  // 2. Fetch previously crawled sublinks from database
-  const crawledSet = await getDiscoverCrawledSublinks(sourceUrl);
+  // 2. Fetch previously crawled sublinks from database (only if previousEvents is provided)
+  const crawledSet = (previousEvents && previousEvents.length > 0)
+    ? await getDiscoverCrawledSublinks(sourceUrl)
+    : new Set<string>();
 
   const newSublinks: string[] = [];
   const skippedSublinks: string[] = [];
