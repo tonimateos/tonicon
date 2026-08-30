@@ -3,13 +3,15 @@ import {
   getDiscoverPreferences,
   getDiscoverEvents,
   createDiscoverEvent,
-  filterEventsWithPreferences
+  filterEventsWithPreferences,
+  mergeNewToPastExtracted,
+  getDiscoverUrls
 } from '@/lib/discover';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { source_url, raw_events } = body;
+    const { url_id, source_url, raw_events } = body;
 
     if (!raw_events || !Array.isArray(raw_events)) {
       return NextResponse.json({ error: 'raw_events array is required' }, { status: 400 });
@@ -46,10 +48,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Merge New JSON into Past JSON for this source after successful send to LLM
+    let targetUrlId = url_id;
+    if (!targetUrlId && source_url) {
+      const urls = await getDiscoverUrls();
+      const match = urls.find((u) => u.url === source_url);
+      if (match) targetUrlId = match.id;
+    }
+
+    let updatedUrl = null;
+    if (targetUrlId) {
+      updatedUrl = await mergeNewToPastExtracted(targetUrlId);
+    }
+
     return NextResponse.json({
       added: addedCount,
       matched_events: matches,
-      events: addedEvents
+      events: addedEvents,
+      url: updatedUrl
     });
   } catch (error) {
     console.error('API Error POST /api/discover/evaluate-matches:', error);

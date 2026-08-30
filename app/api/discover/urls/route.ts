@@ -3,7 +3,9 @@ import {
   getDiscoverUrls,
   addDiscoverUrl,
   deleteDiscoverUrl,
-  clearDiscoverUrlLastExtracted
+  clearDiscoverUrlLastExtracted,
+  clearDiscoverUrlNewExtracted,
+  mergeNewToPastExtracted
 } from '@/lib/discover';
 
 export async function GET() {
@@ -45,8 +47,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'id parameter is required' }, { status: 400 });
     }
 
-    if (action === 'clear_json') {
+    if (action === 'clear_new_json') {
+      const updated = await clearDiscoverUrlNewExtracted(id);
+      return NextResponse.json({ url: updated });
+    }
+
+    if (action === 'clear_past_json' || action === 'clear_json') {
       const updated = await clearDiscoverUrlLastExtracted(id);
+      return NextResponse.json({ url: updated });
+    }
+
+    if (action === 'merge_new_to_past') {
+      const updated = await mergeNewToPastExtracted(id);
       return NextResponse.json({ url: updated });
     }
 

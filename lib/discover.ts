@@ -797,6 +797,154 @@ export async function deleteDiscoverUrl(id: string): Promise<void> {
   }
 }
 
+export function getRawEventKey(item: Record<string, unknown>): string {
+  const sublink =
+    (item.event_sublink_url as string) ||
+    (item.event_url as string) ||
+    (item.url as string) ||
+    (item.link as string) ||
+    '';
+  const name =
+    (item.event_name as string) ||
+    (item.title as string) ||
+    (item.band_name as string) ||
+    (item.name as string) ||
+    (item.artist_or_performer as string) ||
+    '';
+  const date =
+    (item.date as string) ||
+    (item.date_and_time as string) ||
+    (item.datetime as string) ||
+    '';
+
+  const cleanSublink = sublink.trim().toLowerCase().split('#')[0];
+  const cleanName = name.trim().toLowerCase();
+  const cleanDate = date.trim().toLowerCase().slice(0, 10);
+
+  if (cleanSublink) return cleanSublink;
+  if (cleanName) return `${cleanName}|${cleanDate}`;
+  return JSON.stringify(item);
+}
+
+export async function updateDiscoverUrlNewExtracted(
+  id: string,
+  rawEvents: Array<Record<string, unknown>>
+): Promise<DiscoverUrl> {
+  // 1. Fetch current row to compare against last_extracted_json (Past JSON)
+  const { data: urlRow } = await supabase
+    .from('discover_urls')
+    .select('last_extracted_json')
+    .eq('id', id)
+    .single();
+
+  const pastEvents: Array<Record<string, unknown>> = Array.isArray(urlRow?.last_extracted_json)
+    ? urlRow.last_extracted_json
+    : [];
+
+  const pastKeys = new Set(pastEvents.map((e) => getRawEventKey(e)));
+
+  // 2. Filter rawEvents so new_extracted_json contains ONLY new events not in Past JSON
+  const seenNewKeys = new Set<string>();
+  const trulyNewEvents: Array<Record<string, unknown>> = [];
+
+  for (const item of rawEvents) {
+    const key = getRawEventKey(item);
+    if (!pastKeys.has(key) && !seenNewKeys.has(key)) {
+      seenNewKeys.add(key);
+      trulyNewEvents.push(item);
+    }
+  }
+
+  // 3. Save only truly new events into new_extracted_json
+  const { data, error } = await supabase
+    .from('discover_urls')
+    .update({
+      new_extracted_json: trulyNewEvents,
+      last_scraped_at: new Date().toISOString()
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error updating new_extracted_json:', error);
+    throw new Error(error.message || 'Failed to save new extracted JSON');
+  }
+
+  return data;
+}
+
+export async function clearDiscoverUrlNewExtracted(id: string): Promise<DiscoverUrl> {
+  const { data, error } = await supabase
+    .from('discover_urls')
+    .update({
+      new_extracted_json: []
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error clearing new_extracted_json:', error);
+    throw new Error(error.message || 'Failed to clear new extracted JSON');
+  }
+
+  return data;
+}
+
+export async function mergeNewToPastExtracted(id: string): Promise<DiscoverUrl> {
+  const { data: urlRow, error: fetchErr } = await supabase
+    .from('discover_urls')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (fetchErr || !urlRow) {
+    console.error('Error fetching discover_url for merge:', fetchErr);
+    throw new Error(fetchErr?.message || 'Source URL not found for merge');
+  }
+
+  const pastEvents: Array<Record<string, unknown>> = Array.isArray(urlRow.last_extracted_json)
+    ? urlRow.last_extracted_json
+    : [];
+  const newEvents: Array<Record<string, unknown>> = Array.isArray(urlRow.new_extracted_json)
+    ? urlRow.new_extracted_json
+    : [];
+
+  if (newEvents.length === 0) {
+    return urlRow;
+  }
+
+  // Deduplicate when merging new into past using getRawEventKey
+  const existingKeys = new Set(pastEvents.map((e) => getRawEventKey(e)));
+
+  const merged = [...pastEvents];
+  for (const item of newEvents) {
+    const key = getRawEventKey(item);
+    if (!existingKeys.has(key)) {
+      existingKeys.add(key);
+      merged.push(item);
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('discover_urls')
+    .update({
+      last_extracted_json: merged,
+      new_extracted_json: []
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error merging new to past JSON:', error);
+    throw new Error(error.message || 'Failed to merge new JSON to past JSON');
+  }
+
+  return data;
+}
+
 export async function updateDiscoverUrlLastExtracted(
   id: string,
   rawEvents: Array<Record<string, unknown>>
@@ -1046,12 +1194,13 @@ export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ adde
 
   for (const src of urls) {
     try {
-      const previousEvents = Array.isArray(src.last_extracted_json)
-        ? src.last_extracted_json
-        : undefined;
+      const previousEvents = [
+        ...(Array.isArray(src.last_extracted_json) ? src.last_extracted_json : []),
+        ...(Array.isArray(src.new_extracted_json) ? src.new_extracted_json : [])
+      ];
 
-      const rawEvents = await extractAllRawEventsAlternativeD(src.url, previousEvents);
-      await updateDiscoverUrlLastExtracted(src.id, rawEvents);
+      const rawEvents = await extractAllRawEventsAlternativeD(src.url, previousEvents.length > 0 ? previousEvents : undefined);
+      await updateDiscoverUrlNewExtracted(src.id, rawEvents);
 
       const matches = await filterEventsWithPreferences(rawEvents, preferences.content, src.url);
 

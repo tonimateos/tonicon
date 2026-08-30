@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   getDiscoverUrls,
   extractAllRawEventsAlternativeD,
-  updateDiscoverUrlLastExtracted
+  updateDiscoverUrlNewExtracted
 } from '@/lib/discover';
 
 export async function POST(req: NextRequest) {
@@ -21,9 +21,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Source URL not found' }, { status: 404 });
     }
 
-    const previousEvents = Array.isArray(targetUrl.last_extracted_json)
-      ? targetUrl.last_extracted_json
-      : undefined;
+    const previousEvents = [
+      ...(Array.isArray(targetUrl.last_extracted_json) ? targetUrl.last_extracted_json : []),
+      ...(Array.isArray(targetUrl.new_extracted_json) ? targetUrl.new_extracted_json : [])
+    ];
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -35,19 +36,19 @@ export async function POST(req: NextRequest) {
         try {
           const finalRawEvents = await extractAllRawEventsAlternativeD(
             targetUrl.url,
-            previousEvents,
+            previousEvents.length > 0 ? previousEvents : undefined,
             (progress) => {
               sendEvent(progress);
             }
           );
 
-          // Save final extracted JSON in Supabase
-          const updatedUrl = await updateDiscoverUrlLastExtracted(targetUrl.id, finalRawEvents);
+          // Save final extracted JSON into new_extracted_json in Supabase
+          const updatedUrl = await updateDiscoverUrlNewExtracted(targetUrl.id, finalRawEvents);
 
           sendEvent({
             type: 'complete',
             url: updatedUrl,
-            raw_events: finalRawEvents
+            raw_events: Array.isArray(updatedUrl.new_extracted_json) ? updatedUrl.new_extracted_json : []
           });
         } catch (err) {
           sendEvent({
