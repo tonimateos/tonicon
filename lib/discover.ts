@@ -103,6 +103,93 @@ export type ProgressCallback = (progress: {
   skippedCount?: number;
 }) => void;
 
+async function discoverWpJsonEventLinks(origin: string): Promise<string[]> {
+  const links = new Set<string>();
+
+  try {
+    const endpointKeys: string[] = ['event', 'events', 'esdeveniment', 'esdeveniments', 'agenda', 'concierto', 'concerts', 'posts'];
+
+    // 1. Check WP Types endpoint to discover registered event post type keys
+    try {
+      const typesRes = await fetch(`${origin}/wp-json/wp/v2/types`, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        signal: AbortSignal.timeout(8000),
+        cache: 'no-store'
+      });
+
+      if (typesRes.ok) {
+        const typesData = await typesRes.json();
+        const discoveredTypes = Object.keys(typesData || {}).filter(
+          (t) => t.includes('event') || t.includes('agenda') || t.includes('esdeveniment') || t.includes('concert')
+        );
+        discoveredTypes.forEach((t) => {
+          if (!endpointKeys.includes(t)) endpointKeys.unshift(t);
+        });
+      }
+    } catch {}
+
+    // 2. Fetch items from endpoints
+    for (const key of endpointKeys) {
+      const ep = `${origin}/wp-json/wp/v2/${key}?per_page=100`;
+      try {
+        const apiRes = await fetch(ep, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*'
+          },
+          signal: AbortSignal.timeout(10000),
+          cache: 'no-store'
+        });
+
+        if (apiRes.ok) {
+          const apiJson = await apiRes.json();
+          if (Array.isArray(apiJson) && apiJson.length > 0) {
+            for (const item of apiJson) {
+              const link = item.link || item.guid?.rendered;
+              if (link && typeof link === 'string') {
+                links.add(link.split('#')[0]);
+              }
+            }
+            if (links.size > 0) break;
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 3. Multilingual deduplication (prefer Spanish / Catalan or base slug variant)
+  const canonicalLinks = new Set<string>();
+  const linkList = Array.from(links);
+
+  const slugGroups = new Map<string, string[]>();
+  for (const link of linkList) {
+    const cleanSlug = link
+      .replace(/\/en\/|\/es\/|\/ca\//g, '/')
+      .replace(/-eng\/|-es\/|-cat\//g, '/')
+      .replace(/(-eng|-es|-cat)$/g, '');
+
+    if (!slugGroups.has(cleanSlug)) {
+      slugGroups.set(cleanSlug, []);
+    }
+    slugGroups.get(cleanSlug)!.push(link);
+  }
+
+  for (const [, variants] of slugGroups) {
+    const preferred =
+      variants.find((v) => v.includes('/es/') || v.endsWith('-es/')) ||
+      variants.find((v) => !v.includes('/en/')) ||
+      variants[0];
+    canonicalLinks.add(preferred);
+  }
+
+  return Array.from(canonicalLinks);
+}
+
 /**
  * Alternative D DOM Crawler with Sublink Deduplication:
  * 1. Fetches main agenda URL and parses DOM using Cheerio.
@@ -126,8 +213,13 @@ export async function extractAllRawEventsAlternativeD(
   const res = await fetch(sourceUrl, {
     headers: {
       'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      'Accept':
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7,ca;q=0.6',
+      'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+      'Sec-Ch-Ua-Mobile': '?0',
+      'Sec-Ch-Ua-Platform': '"macOS"'
     },
     signal: AbortSignal.timeout(15000),
     cache: 'no-store'
@@ -159,9 +251,13 @@ export async function extractAllRawEventsAlternativeD(
       const pageHtml = pIdx === 0 ? mainHtml : await (await fetch(currentFetchUrl, {
         headers: {
           'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7,ca;q=0.6',
+          'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"macOS"'
         },
         signal: AbortSignal.timeout(10000),
         cache: 'no-store'
@@ -193,12 +289,11 @@ export async function extractAllRawEventsAlternativeD(
             !cleanAbsUrl.includes('/ciclos') &&
             !cleanAbsUrl.includes('/clubs') &&
             !cleanAbsUrl.includes('/noticias') &&
-            !cleanAbsUrl.includes('/ca/') &&
             (cleanAbsUrl.includes('/agenda/') ||
               cleanAbsUrl.includes('/event/') ||
               cleanAbsUrl.includes('/evento/') ||
               cleanAbsUrl.includes('/concierto/') ||
-              cleanAbsUrl.includes('/programacion/'));
+              cleanAbsUrl.includes('/programacio/'));
 
           if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {
             discoveredLinks.add(cleanAbsUrl);
@@ -213,6 +308,14 @@ export async function extractAllRawEventsAlternativeD(
       }
     } catch {
       break;
+    }
+  }
+
+  // Fallback: If 0 sublinks found in static HTML, query WordPress REST API endpoints
+  if (discoveredLinks.size === 0) {
+    const wpLinks = await discoverWpJsonEventLinks(parsedSourceUrl.origin);
+    for (const link of wpLinks) {
+      discoveredLinks.add(link);
     }
   }
 
@@ -256,8 +359,13 @@ export async function extractAllRawEventsAlternativeD(
       const subRes = await fetch(sublink, {
         headers: {
           'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en-US;q=0.8,en;q=0.7,ca;q=0.6',
+          'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': '"macOS"'
         },
         signal: AbortSignal.timeout(12000),
         cache: 'no-store'
@@ -516,7 +624,7 @@ export async function filterEventsWithPreferences(
   rawEvents: Array<Record<string, unknown>>,
   userPreferences: string,
   sourceUrl: string
-): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string }>> {
+): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string; match_reason?: string }>> {
   if (!rawEvents || rawEvents.length === 0) {
     return [];
   }
@@ -538,6 +646,7 @@ INSTRUCTIONS:
    - "venue_name": string or null (Venue or location)
    - "date": string or null (ISO-8601 date string e.g. "2026-10-15T20:00:00Z" or "2026-10-15")
    - "url": string or null (Direct link if available, otherwise "${sourceUrl}")
+   - "match_reason": string (Concise 1-2 sentence explanation of why this event matches the user's preferences, e.g., "Fits your preference for indie rock concerts and mid-sized venue sessions.")
 3. Return ONLY a strict JSON array of matching objects. Do NOT wrap in markdown code blocks.`;
 
   const result = await model.generateContent(prompt);
@@ -869,6 +978,7 @@ export async function createDiscoverEvent(
       url: eventData.url || null,
       status: eventData.status || 'candidate',
       rejection_reason: eventData.rejection_reason || null,
+      match_reason: eventData.match_reason || null,
       source_url: eventData.source_url || null
     }])
     .select()
@@ -955,6 +1065,7 @@ export async function runOnDemandDiscovery(sourceUrlId?: string): Promise<{ adde
             date: item.date || null,
             url: item.url || src.url,
             status: 'candidate',
+            match_reason: item.match_reason || null,
             source_url: src.url
           });
           totalAdded++;

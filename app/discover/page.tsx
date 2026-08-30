@@ -766,6 +766,17 @@ export default function DiscoverPage() {
                       )}
                     </div>
 
+                    {/* Match Reason Banner */}
+                    {event.match_reason && (
+                      <div className="p-3 bg-indigo-950/40 border border-indigo-800/60 rounded-xl flex items-start gap-2.5 text-xs">
+                        <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-indigo-200">Why it matches: </span>
+                          <span className="text-slate-300 leading-relaxed">{event.match_reason}</span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Decision Action Bar (Yes / No / No + Reason) */}
                     <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <span className="text-[11px] text-slate-400">Are you interested in this event?</span>

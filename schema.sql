@@ -67,9 +67,11 @@ CREATE TABLE IF NOT EXISTS public.discover_events (
     url TEXT,
     status TEXT NOT NULL DEFAULT 'candidate' CHECK (status IN ('candidate', 'interested', 'rejected')),
     rejection_reason TEXT,
+    match_reason TEXT,
     source_url TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE public.discover_events ADD COLUMN IF NOT EXISTS match_reason TEXT;
 
 -- Indexes for discover events
 CREATE INDEX IF NOT EXISTS idx_discover_events_status ON public.discover_events (status, date ASC);

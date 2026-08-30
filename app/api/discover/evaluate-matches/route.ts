@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
           date: item.date || null,
           url: item.url || source_url || null,
           status: 'candidate',
+          match_reason: item.match_reason || null,
           source_url: source_url || null
         });
         addedEvents.push(created);

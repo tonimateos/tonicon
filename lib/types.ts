@@ -54,6 +54,7 @@ export interface DiscoverEvent {
   url?: string | null;
   status: DiscoverEventStatus;
   rejection_reason?: string | null;
+  match_reason?: string | null;
   source_url?: string | null;
   created_at: string;
 }
