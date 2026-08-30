@@ -1130,7 +1130,7 @@ export default function DiscoverPage() {
                         </button>
                       </div>
 
-                      {/* Bottom Actions Row: 6 Explicit Buttons */}
+                      {/* Bottom Actions Row: Source Buttons */}
                       <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
                         {/* 1. New JSON Button */}
                         <button
@@ -1154,29 +1154,7 @@ export default function DiscoverPage() {
                           <span>Past JSON ({Array.isArray(u.last_extracted_json) ? u.last_extracted_json.length : 0})</span>
                         </button>
 
-                        {/* 3. Clear New JSON Button */}
-                        <button
-                          onClick={() => handleClearNewJson(u.id)}
-                          disabled={!Array.isArray(u.new_extracted_json) || u.new_extracted_json.length === 0}
-                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-amber-950/60 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-400 hover:text-amber-400 border border-slate-700 text-xs font-medium rounded-xl transition flex items-center gap-1"
-                          title="Clear newly extracted JSON for this source"
-                        >
-                          <Eraser className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Clear New JSON</span>
-                        </button>
-
-                        {/* 4. Clear Past JSON Button */}
-                        <button
-                          onClick={() => handleClearPastJson(u.id)}
-                          disabled={!Array.isArray(u.last_extracted_json) || u.last_extracted_json.length === 0}
-                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-rose-950/60 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-700 text-xs font-medium rounded-xl transition flex items-center gap-1"
-                          title="Clear previously stored JSON for this source"
-                        >
-                          <FileX className="w-3.5 h-3.5 text-rose-400" />
-                          <span>Clear Past JSON</span>
-                        </button>
-
-                        {/* 5. Scrape Button */}
+                        {/* 3. Scrape Button */}
                         <button
                           onClick={() => handleRunScrapeForSource(u)}
                           disabled={scrapingUrlId === u.id || isScraping}
@@ -1187,7 +1165,7 @@ export default function DiscoverPage() {
                           <span>{scrapingUrlId === u.id ? 'Scraping...' : 'Scrape'}</span>
                         </button>
 
-                        {/* 6. Send New to LLM Button */}
+                        {/* 4. Send New to LLM Button */}
                         <button
                           onClick={() => handleSendNewToLLM(u)}
                           disabled={!Array.isArray(u.new_extracted_json) || u.new_extracted_json.length === 0 || scrapingUrlId === u.id || isScraping}
