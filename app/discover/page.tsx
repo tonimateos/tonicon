@@ -26,7 +26,10 @@ import {
   Eye,
   Clock,
   Eraser,
-  FileX
+  FileX,
+  BrainCircuit,
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 import { DiscoverEvent, DiscoverPreferences, DiscoverUrl } from '@/lib/types';
 
@@ -66,6 +69,25 @@ export default function DiscoverPage() {
     isExtracting: false,
     isEvaluating: false,
     jsonType: 'live'
+  });
+
+  // LLM Evaluation Explanation & Progress Modal State
+  const [evalModalState, setEvalModalState] = useState<{
+    isOpen: boolean;
+    source: DiscoverUrl | null;
+    isEvaluating: boolean;
+    statusText: string;
+    resultMessage: string | null;
+    addedCount: number | null;
+    error: string | null;
+  }>({
+    isOpen: false,
+    source: null,
+    isEvaluating: false,
+    statusText: '',
+    resultMessage: null,
+    addedCount: null,
+    error: null
   });
 
   // Sub-tab for interested events
@@ -403,6 +425,16 @@ export default function DiscoverPage() {
 
     setScrapingUrlId(source.id);
     setScrapeResultMsg(null);
+    setEvalModalState({
+      isOpen: true,
+      source,
+      isEvaluating: true,
+      statusText: `Submitting ${eventsToSend.length} new raw event item${eventsToSend.length === 1 ? '' : 's'} to Gemini AI for preference evaluation...`,
+      resultMessage: null,
+      addedCount: null,
+      error: null
+    });
+
     try {
       const res = await fetch('/api/discover/evaluate-matches', {
         method: 'POST',
@@ -416,6 +448,11 @@ export default function DiscoverPage() {
       const data = await res.json();
 
       if (!res.ok) {
+        setEvalModalState((prev) => ({
+          ...prev,
+          isEvaluating: false,
+          error: data.error || 'Failed to evaluate matches with LLM'
+        }));
         setScrapeResultMsg({
           type: 'error',
           text: data.error || 'Failed to evaluate matches with LLM'
@@ -425,17 +462,27 @@ export default function DiscoverPage() {
         if (data.url) {
           setUrls((prev) => prev.map((u) => (u.id === source.id ? data.url : u)));
         }
+        setEvalModalState((prev) => ({
+          ...prev,
+          isEvaluating: false,
+          addedCount,
+          resultMessage: `Match evaluation complete! Evaluated ${eventsToSend.length} raw events against your active preferences. ${addedCount} matching candidate event${addedCount === 1 ? '' : 's'} discovered. New JSON has been merged into Past JSON.`
+        }));
         setScrapeResultMsg({
           type: 'success',
           text: `Match evaluation complete for "${source.name || source.url}"! Discovered ${addedCount} candidate match${addedCount === 1 ? '' : 'es'}. New JSON content merged into Past JSON.`
         });
-        // Refresh candidates list and switch to Candidates tab
+        // Refresh candidates list
         const candRes = await fetch('/api/discover/events?status=candidate');
         const candData = await candRes.json();
         if (candData.events) setCandidates(candData.events);
-        setActiveTab('candidates');
       }
     } catch (err) {
+      setEvalModalState((prev) => ({
+        ...prev,
+        isEvaluating: false,
+        error: 'Network or server error sending new JSON to LLM for match filtering.'
+      }));
       setScrapeResultMsg({ type: 'error', text: 'Error sending new JSON to LLM for match filtering.' });
     } finally {
       setScrapingUrlId(null);
@@ -1402,6 +1449,150 @@ export default function DiscoverPage() {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LLM Evaluation Explanation & Progress Modal */}
+      {evalModalState.isOpen && evalModalState.source && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in">
+          <div className="max-w-xl w-full bg-slate-900 border border-slate-700 rounded-2xl p-6 space-y-5 shadow-2xl overflow-hidden relative">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
+                  <Sparkles className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-white flex items-center gap-2">
+                    Evaluating Matches with LLM
+                  </h3>
+                  <p className="text-xs text-slate-400 truncate max-w-sm">
+                    Source: <span className="text-slate-300 font-medium">{evalModalState.source.name || evalModalState.source.url}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEvalModalState((prev) => ({ ...prev, isOpen: false }))}
+                disabled={evalModalState.isEvaluating}
+                className="p-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 disabled:opacity-30 rounded-lg transition"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Explanation Steps */}
+            <div className="space-y-3 bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 text-xs text-slate-300">
+              <h4 className="font-semibold text-slate-200 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                <BrainCircuit className="w-4 h-4 text-indigo-400" />
+                What's Happening Under The Hood:
+              </h4>
+
+              <div className="grid gap-2.5 pt-1">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    1
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white">Reading New JSON:</span> Taking the newly scraped raw event items stored for this source ({Array.isArray(evalModalState.source.new_extracted_json) ? evalModalState.source.new_extracted_json.length : 0} items).
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-violet-950 border border-violet-700 text-violet-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    2
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white">Preference Matching:</span> Gemini AI evaluates each raw event against your active rules (genres, locations, performers, keywords) to score relevance.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    3
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white">Candidate Generation:</span> High-matching events are automatically added to your <strong className="text-emerald-300">Candidates</strong> tab for your review.
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <div className="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    4
+                  </div>
+                  <div>
+                    <span className="font-semibold text-white">History Archiving:</span> After evaluation, the New JSON content is automatically merged into <strong className="text-indigo-300">Past JSON</strong> so it isn't re-evaluated next time.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Progress / Result Box */}
+            <div className="p-4 rounded-xl border transition-all">
+              {evalModalState.isEvaluating ? (
+                <div className="bg-indigo-950/40 border border-indigo-800/80 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 animate-spin text-indigo-400 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-sm text-indigo-200">Evaluating with Gemini AI...</h4>
+                      <p className="text-xs text-indigo-300/80 mt-0.5">{evalModalState.statusText}</p>
+                    </div>
+                  </div>
+                  <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                    <div className="bg-gradient-to-r from-indigo-500 to-violet-500 h-full w-2/3 animate-pulse rounded-full" />
+                  </div>
+                </div>
+              ) : evalModalState.error ? (
+                <div className="bg-rose-950/40 border border-rose-800/80 rounded-xl p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold text-sm text-rose-200">Evaluation Error</h4>
+                    <p className="text-xs text-rose-300/90 mt-1">{evalModalState.error}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-950/40 border border-emerald-800/80 rounded-xl p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-sm text-emerald-200">Evaluation & Merge Complete!</h4>
+                      <p className="text-xs text-emerald-300/90 mt-1">{evalModalState.resultMessage}</p>
+                    </div>
+                  </div>
+                  {evalModalState.addedCount !== null && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="px-3 py-1 bg-emerald-900/80 border border-emerald-700 text-emerald-200 font-bold text-xs rounded-full flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                        +{evalModalState.addedCount} New Candidates Found
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+              {!evalModalState.isEvaluating && evalModalState.resultMessage && (
+                <button
+                  onClick={() => {
+                    setEvalModalState((prev) => ({ ...prev, isOpen: false }));
+                    setActiveTab('candidates');
+                  }}
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold rounded-xl shadow flex items-center gap-1.5 transition"
+                >
+                  <span>View Candidates Tab</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => setEvalModalState((prev) => ({ ...prev, isOpen: false }))}
+                disabled={evalModalState.isEvaluating}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 text-xs font-semibold rounded-xl transition"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

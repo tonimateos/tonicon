@@ -38,7 +38,8 @@ export async function scrapeConcertUrl(url: string): Promise<ScrapeResult> {
   if (apiKey) {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const modelName = (process.env.GEMINI_MODEL || 'gemini-2.0-flash').replace(/^["']|["']$/g, '').trim();
+      const model = genAI.getGenerativeModel({ model: modelName });
 
       const prompt = `You are a concert event parser. Extract concert details from the provided webpage text or title.
 Webpage URL: ${url}

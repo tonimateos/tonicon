@@ -3,7 +3,7 @@ import * as cheerio from 'cheerio';
 import { supabase } from './supabase';
 import { DiscoverEvent, DiscoverEventStatus, DiscoverPreferences, DiscoverUrl } from './types';
 
-function getGeminiModel() {
+function getGeminiModel(overrideModel?: string) {
   const rawKey = process.env.GEMINI_API_KEY || '';
   const apiKey = rawKey.replace(/^["']|["']$/g, '').trim();
 
@@ -11,14 +11,64 @@ function getGeminiModel() {
     throw new Error('GEMINI_API_KEY is not set in .env.local');
   }
 
-  const rawModel = (process.env.GEMINI_MODEL || '').replace(/^["']|["']$/g, '').trim();
-  const modelName =
-    rawModel && rawModel !== 'gemini-2.0-flash' && rawModel !== 'gemini-1.5-flash'
-      ? rawModel
-      : 'gemini-2.5-flash';
+  const rawModel = overrideModel || (process.env.GEMINI_MODEL || '').replace(/^["']|["']$/g, '').trim();
+  const modelName = rawModel || 'gemini-2.0-flash';
 
   const genAI = new GoogleGenerativeAI(apiKey);
   return genAI.getGenerativeModel({ model: modelName });
+}
+
+/**
+ * Safely calls Gemini API with rate-limit retries (429 Too Many Requests)
+ * and automatic fallback across valid active models (gemini-2.0-flash / gemini-2.5-flash).
+ */
+export async function generateContentWithGeminiRetry(
+  prompt: string,
+  modelNameOverride?: string
+): Promise<string> {
+  const defaultEnvModel = (process.env.GEMINI_MODEL || 'gemini-2.0-flash').replace(/^["']|["']$/g, '').trim();
+  const primaryModel = modelNameOverride || defaultEnvModel;
+  const secondaryModel = primaryModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
+
+  const uniqueModels = Array.from(new Set([primaryModel, secondaryModel])).filter(Boolean);
+
+  let lastError: unknown = null;
+
+  for (const modelName of uniqueModels) {
+    let retries = 2; // Retry up to 2 times for 429/503 on each model
+    while (retries >= 0) {
+      try {
+        const rawKey = process.env.GEMINI_API_KEY || '';
+        const apiKey = rawKey.replace(/^["']|["']$/g, '').trim();
+
+        if (!apiKey) {
+          throw new Error('GEMINI_API_KEY is not set in .env.local');
+        }
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+      } catch (err: any) {
+        lastError = err;
+        const errStr = err?.message || String(err);
+        const isRateLimit = errStr.includes('429') || errStr.includes('Quota exceeded') || errStr.includes('503');
+
+        if (isRateLimit && retries > 0) {
+          const delayMatch = errStr.match(/retry in ([0-9.]+)s/i);
+          const delayMs = delayMatch ? Math.ceil(parseFloat(delayMatch[1]) * 1000) + 1000 : 3500;
+          console.warn(`[Gemini API Warning] Model ${modelName} hit rate limit / quota (${errStr.slice(0, 100)}...). Retrying in ${delayMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          retries--;
+        } else {
+          console.warn(`[Gemini API Warning] Model ${modelName} failed (${errStr.slice(0, 100)}...). Switching to fallback model if available...`);
+          break;
+        }
+      }
+    }
+  }
+
+  throw lastError || new Error('All Gemini API models failed or exceeded quota limits.');
 }
 
 /**
@@ -78,8 +128,8 @@ INSTRUCTIONS:
 4. If previously extracted events are listed above, do not duplicate them if they are unchanged. Focus on new or updated event entries.
 5. Return ONLY a valid JSON array of objects. Do NOT wrap in markdown code fences or add conversational text.`;
 
-  const result = await model.generateContent(prompt);
-  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const responseText = await generateContentWithGeminiRetry(prompt);
+  const rawText = responseText.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
   try {
     const parsed = JSON.parse(rawText);
@@ -298,8 +348,20 @@ export async function extractAllRawEventsAlternativeD(
             !cleanAbsUrl.includes('/ciclos') &&
             !cleanAbsUrl.includes('/clubs') &&
             !cleanAbsUrl.includes('/noticias') &&
+            !cleanAbsUrl.includes('/identificat') &&
+            !cleanAbsUrl.includes('/register') &&
+            !cleanAbsUrl.includes('/usuaris/') &&
+            !cleanAbsUrl.includes('/mailto/') &&
+            !cleanAbsUrl.includes('llistat?') &&
+            !cleanAbsUrl.includes('tipuscerca') &&
+            !cleanAbsUrl.includes('pg=search') &&
             (isSubpathOfSource ||
+              cleanAbsUrl.includes('/details/') ||
+              cleanAbsUrl.includes('/detall/') ||
+              cleanAbsUrl.includes('/item/') ||
+              cleanAbsUrl.includes('/cartellera/') ||
               cleanAbsUrl.includes('/agenda/') ||
+              cleanAbsUrl.includes('/agenda-recomenada/') ||
               cleanAbsUrl.includes('/event/') ||
               cleanAbsUrl.includes('/events/') ||
               cleanAbsUrl.includes('/evento/') ||
@@ -336,8 +398,19 @@ export async function extractAllRawEventsAlternativeD(
 
   const allSublinks = Array.from(discoveredLinks);
 
-  // 2. Fetch previously crawled sublinks from database (only if previousEvents is provided)
-  const crawledSet = (previousEvents && previousEvents.length > 0)
+  // 2. Build set of past keys and sublinks from previousEvents / Past JSON
+  const pastKeys = new Set<string>();
+  if (Array.isArray(previousEvents)) {
+    for (const e of previousEvents) {
+      const key = getRawEventKey(e);
+      if (key) pastKeys.add(key);
+      const sublink = (e.event_sublink_url as string) || (e.event_url as string) || (e.url as string) || '';
+      if (sublink) pastKeys.add(sublink.trim().toLowerCase().split('#')[0]);
+    }
+  }
+
+  // Fetch previously crawled sublinks from database (only if previousEvents is provided)
+  const dbCrawledSet = (previousEvents && previousEvents.length > 0)
     ? await getDiscoverCrawledSublinks(sourceUrl)
     : new Set<string>();
 
@@ -345,31 +418,35 @@ export async function extractAllRawEventsAlternativeD(
   const skippedSublinks: string[] = [];
 
   for (const link of allSublinks) {
-    if (crawledSet.has(link)) {
+    if (dbCrawledSet.has(link) || pastKeys.has(link)) {
       skippedSublinks.push(link);
     } else {
       newSublinks.push(link);
     }
   }
 
+  // Cap newly crawled links not in Past JSON to 50 max
+  const MAX_NEW_SUBLINKS = 50;
+  const sublinksToCrawl = newSublinks.slice(0, MAX_NEW_SUBLINKS);
+
   onProgress?.({
     type: 'status',
     url: sourceUrl,
     skippedCount: skippedSublinks.length,
-    message: `Discovered ${allSublinks.length} sublinks. Skipped ${skippedSublinks.length} previously crawled link(s). ${newSublinks.length} new sublink(s) to crawl.`
+    message: `Discovered ${allSublinks.length} sublinks (${skippedSublinks.length} already in Past JSON / cached). ${sublinksToCrawl.length} new sublink(s) to crawl (max limit: ${MAX_NEW_SUBLINKS}).`
   });
 
   const crawledSubpages: Array<Record<string, unknown>> = [];
   const newlyCrawledUrls: string[] = [];
 
-  // Deep crawl new sublinks
-  for (let i = 0; i < newSublinks.length; i++) {
-    const sublink = newSublinks[i];
+  // Deep crawl new sublinks (up to 50)
+  for (let i = 0; i < sublinksToCrawl.length; i++) {
+    const sublink = sublinksToCrawl[i];
     onProgress?.({
       type: 'status',
       url: sublink,
       skippedCount: skippedSublinks.length,
-      message: `Deep crawling new sublink (${i + 1}/${newSublinks.length}): ${sublink}`
+      message: `Deep crawling new sublink (${i + 1}/${sublinksToCrawl.length}): ${sublink}`
     });
 
     try {
@@ -600,9 +677,8 @@ INSTRUCTIONS:
 3. Merge these details into the existing event JSON structure.
 4. Return ONLY a single valid JSON object containing the updated fields. Do NOT wrap in markdown code blocks.`;
 
-            const detailResult = await model.generateContent(detailPrompt);
-            const detailText = detailResult.response
-              .text()
+            const detailResponseText = await generateContentWithGeminiRetry(detailPrompt);
+            const detailText = detailResponseText
               .trim()
               .replace(/^```json\s*/i, '')
               .replace(/\s*```$/i, '');
@@ -646,8 +722,6 @@ export async function filterEventsWithPreferences(
     return [];
   }
 
-  const model = getGeminiModel();
-
   const prompt = `You are a cultural event match evaluator. Compare the following list of raw extracted events against the user's preferences.
 
 USER PREFERENCES:
@@ -666,8 +740,8 @@ INSTRUCTIONS:
    - "match_reason": string (Concise 1-2 sentence explanation of why this event matches the user's preferences, e.g., "Fits your preference for indie rock concerts and mid-sized venue sessions.")
 3. Return ONLY a strict JSON array of matching objects. Do NOT wrap in markdown code blocks.`;
 
-  const result = await model.generateContent(prompt);
-  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const responseText = await generateContentWithGeminiRetry(prompt);
+  const rawText = responseText.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
   try {
     const parsed = JSON.parse(rawText);
@@ -690,8 +764,6 @@ export async function extractEventsWithGemini(
   userPreferences: string,
   sourceUrl: string
 ): Promise<Array<{ event_name: string; venue_name?: string; date?: string; url?: string }>> {
-  const model = getGeminiModel();
-
   const prompt = `You are a cultural event discovery assistant. Analyze the webpage text below and select cultural events (concerts, meetups, theaters, expositions, festivals) that match or align with the user's preferences.
 
 USER PREFERENCES:
@@ -714,8 +786,8 @@ INSTRUCTIONS:
 
 If no matching upcoming events are found, return empty array [].`;
 
-  const result = await model.generateContent(prompt);
-  const rawText = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+  const responseText = await generateContentWithGeminiRetry(prompt);
+  const rawText = responseText.trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
   try {
     const parsed = JSON.parse(rawText);
@@ -742,8 +814,6 @@ export async function generatePreferenceRule(
   }
 
   try {
-    const model = getGeminiModel();
-
     const prompt = `The user rejected a proposed cultural event with a specific reason. Formulate a concise, clear preference rule to add to the user's preference list.
 
 EVENT DETAILS:
@@ -758,8 +828,8 @@ INSTRUCTIONS:
 Formulate ONE concise sentence starting with "The user..." describing this new preference rule (e.g., "The user considers events of type [TYPE] at [VENUE/PRICE] too expensive" or "The user dislikes [GENRE] events on weeknights").
 Return ONLY the raw preference rule string without quotes or markdown formatting.`;
 
-    const result = await model.generateContent(prompt);
-    const rule = result.response.text().trim();
+    const responseText = await generateContentWithGeminiRetry(prompt);
+    const rule = responseText.trim();
     if (rule.length > 0) {
       return rule;
     }
@@ -860,7 +930,7 @@ export async function updateDiscoverUrlNewExtracted(
 
   const pastKeys = new Set(pastEvents.map((e) => getRawEventKey(e)));
 
-  // 2. Filter rawEvents so new_extracted_json contains ONLY new events not in Past JSON
+  // 2. Filter rawEvents so new_extracted_json contains ONLY new events not in Past JSON (limit 50)
   const seenNewKeys = new Set<string>();
   const trulyNewEvents: Array<Record<string, unknown>> = [];
 
@@ -869,6 +939,7 @@ export async function updateDiscoverUrlNewExtracted(
     if (!pastKeys.has(key) && !seenNewKeys.has(key)) {
       seenNewKeys.add(key);
       trulyNewEvents.push(item);
+      if (trulyNewEvents.length >= 50) break;
     }
   }
 
