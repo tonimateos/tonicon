@@ -39,7 +39,7 @@ export function ConcertCard({ concert, isPast = false, isAdmin = false, onEditCo
         {/* Row 1: Band Name & Edit Button */}
         <div className="flex items-center justify-between gap-3 mb-2">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-display bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-400 bg-clip-text text-transparent drop-shadow-sm">
+            <h2 translate="no" className="text-2xl sm:text-3xl font-extrabold tracking-tight font-display text-amber-200 drop-shadow-sm">
               {concert.band_name}
             </h2>
             {isAdmin && onEditConcert && (
