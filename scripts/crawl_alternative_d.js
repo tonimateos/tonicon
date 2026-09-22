@@ -83,18 +83,27 @@ async function run() {
         if (!href) return;
 
         try {
-          const absUrl = new URL(href, currentFetchUrl).href;
-          const cleanAbsUrl = absUrl.split('#')[0];
+          const parsedAbsUrl = new URL(href, currentFetchUrl);
+          const cleanAbsUrl = parsedAbsUrl.href.split('#')[0];
+
+          const targetHost = new URL(targetUrl).hostname;
+          const isSameHost =
+            parsedAbsUrl.hostname === targetHost ||
+            parsedAbsUrl.hostname.endsWith('.' + targetHost.replace(/^www\./, ''));
+
+          if (!isSameHost) return;
 
           const isEventLink =
             cleanAbsUrl !== targetUrl &&
             !cleanAbsUrl.endsWith('#') &&
             !cleanAbsUrl.includes('wp-login') &&
             !cleanAbsUrl.includes('cart') &&
+            !cleanAbsUrl.includes('checkout') &&
             !cleanAbsUrl.includes('.png') &&
             !cleanAbsUrl.includes('.jpg') &&
             !cleanAbsUrl.includes('/cookies') &&
             !cleanAbsUrl.includes('/contacto') &&
+            !cleanAbsUrl.includes('/contacte') &&
             !cleanAbsUrl.includes('/nosotros') &&
             !cleanAbsUrl.includes('/privacidad') &&
             !cleanAbsUrl.includes('/legal') &&
@@ -103,8 +112,24 @@ async function run() {
             !cleanAbsUrl.includes('/noticias') &&
             (cleanAbsUrl.includes('/agenda/') ||
               cleanAbsUrl.includes('/event/') ||
+              cleanAbsUrl.includes('/events/') ||
               cleanAbsUrl.includes('/evento/') ||
+              cleanAbsUrl.includes('/eventos/') ||
+              cleanAbsUrl.includes('/esdeveniment/') ||
+              cleanAbsUrl.includes('/esdeveniments/') ||
               cleanAbsUrl.includes('/concierto/') ||
+              cleanAbsUrl.includes('/conciertos/') ||
+              cleanAbsUrl.includes('/concert/') ||
+              cleanAbsUrl.includes('/concerts/') ||
+              cleanAbsUrl.includes('/activitat/') ||
+              cleanAbsUrl.includes('/activitats/') ||
+              cleanAbsUrl.includes('/actividad/') ||
+              cleanAbsUrl.includes('/actividades/') ||
+              cleanAbsUrl.includes('/espectacle/') ||
+              cleanAbsUrl.includes('/espectacles/') ||
+              cleanAbsUrl.includes('/espectaculo/') ||
+              cleanAbsUrl.includes('/espectaculos/') ||
+              cleanAbsUrl.includes('/programacio/') ||
               cleanAbsUrl.includes('/programacion/'));
 
           if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {

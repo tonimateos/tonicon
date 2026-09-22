@@ -321,8 +321,15 @@ export async function extractAllRawEventsAlternativeD(
         if (!href) return;
 
         try {
-          const absUrl = new URL(href, currentFetchUrl).href;
-          const cleanAbsUrl = absUrl.split('#')[0];
+          const parsedAbsUrl = new URL(href, currentFetchUrl);
+          const cleanAbsUrl = parsedAbsUrl.href.split('#')[0];
+
+          // Restrict sublinks to the same host domain (or subdomain) as the source URL to avoid noise from third-party checkout portals (e.g. tickets.oneboxtds.com)
+          const isSameHost =
+            parsedAbsUrl.hostname === parsedSourceUrl.hostname ||
+            parsedAbsUrl.hostname.endsWith('.' + parsedSourceUrl.hostname.replace(/^www\./, ''));
+
+          if (!isSameHost) return;
 
           const isSubpathOfSource =
             cleanAbsUrl.startsWith(sourceUrl.endsWith('/') ? sourceUrl : `${sourceUrl}/`) &&
@@ -335,13 +342,16 @@ export async function extractAllRawEventsAlternativeD(
             !cleanAbsUrl.endsWith('#') &&
             !cleanAbsUrl.includes('wp-login') &&
             !cleanAbsUrl.includes('cart') &&
+            !cleanAbsUrl.includes('checkout') &&
             !cleanAbsUrl.includes('.png') &&
             !cleanAbsUrl.includes('.jpg') &&
             !cleanAbsUrl.includes('.jpeg') &&
             !cleanAbsUrl.includes('.webp') &&
             !cleanAbsUrl.includes('.svg') &&
+            !cleanAbsUrl.includes('.pdf') &&
             !cleanAbsUrl.includes('/cookies') &&
             !cleanAbsUrl.includes('/contacto') &&
+            !cleanAbsUrl.includes('/contacte') &&
             !cleanAbsUrl.includes('/nosotros') &&
             !cleanAbsUrl.includes('/privacidad') &&
             !cleanAbsUrl.includes('/legal') &&
@@ -366,11 +376,22 @@ export async function extractAllRawEventsAlternativeD(
               cleanAbsUrl.includes('/events/') ||
               cleanAbsUrl.includes('/evento/') ||
               cleanAbsUrl.includes('/eventos/') ||
-              cleanAbsUrl.includes('/concierto/') ||
-              cleanAbsUrl.includes('/conciertos/') ||
               cleanAbsUrl.includes('/esdeveniment/') ||
               cleanAbsUrl.includes('/esdeveniments/') ||
-              cleanAbsUrl.includes('/programacio/'));
+              cleanAbsUrl.includes('/concierto/') ||
+              cleanAbsUrl.includes('/conciertos/') ||
+              cleanAbsUrl.includes('/concert/') ||
+              cleanAbsUrl.includes('/concerts/') ||
+              cleanAbsUrl.includes('/activitat/') ||
+              cleanAbsUrl.includes('/activitats/') ||
+              cleanAbsUrl.includes('/actividad/') ||
+              cleanAbsUrl.includes('/actividades/') ||
+              cleanAbsUrl.includes('/espectacle/') ||
+              cleanAbsUrl.includes('/espectacles/') ||
+              cleanAbsUrl.includes('/espectaculo/') ||
+              cleanAbsUrl.includes('/espectaculos/') ||
+              cleanAbsUrl.includes('/programacio/') ||
+              cleanAbsUrl.includes('/programacion/'));
 
           if (isEventLink && !discoveredLinks.has(cleanAbsUrl)) {
             discoveredLinks.add(cleanAbsUrl);
