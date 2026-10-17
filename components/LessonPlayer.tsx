@@ -5,19 +5,15 @@ import {
   Play,
   Pause,
   Square,
-  Volume2,
-  VolumeX,
-  ExternalLink,
-  Sparkles,
   BookmarkCheck,
   Send,
   MessageSquarePlus,
-  RotateCcw,
-  Music2,
-  Clock,
   Radio,
-  ChevronRight,
-  Headphones
+  Headphones,
+  Music,
+  ExternalLink,
+  Sparkles,
+  X
 } from 'lucide-react';
 
 interface LessonPlayerProps {
@@ -35,14 +31,54 @@ interface LessonPlayerProps {
 
 interface Segment {
   id: number;
-  type: 'heading' | 'paragraph' | 'song_links';
+  type: 'heading' | 'paragraph' | 'inline_song';
   title?: string;
   text: string;
-  rawText: string;
-  isBreakpoint: boolean;
-  breakpointLabel?: string;
-  spotifyUrl?: string;
+  rawSpeechText: string;
+  songTitle?: string;
   youtubeUrl?: string;
+  embedUrl?: string;
+}
+
+function sanitizeTextForSpeech(raw: string): string {
+  return raw
+    // Remove sound cues like (Intro music fades in...) or [Music fades]
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
+    // Remove speaker labels like **Host:**, Host:, Narrator:
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    // Format markdown song links into spoken track names
+    .replace(/\[(?:Play\s+)?(.*?)(?:\s+on\s+YouTube)?\]\(.*?\)/gi, '$1')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[*_~`#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanVisualText(raw: string): string {
+  return raw
+    // Remove sound cues like (Intro music fades in...)
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    // Remove speaker labels like **Host:** or Host:
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    .trim();
+}
+
+function getEmbedUrl(youtubeUrl: string): string {
+  const queryMatch = youtubeUrl.match(/[?&]search_query=([^&#]+)/);
+  if (queryMatch && queryMatch[1]) {
+    return `https://www.youtube-nocookie.com/embed?listType=search&list=${queryMatch[1]}&autoplay=1`;
+  }
+
+  const idMatch = youtubeUrl.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]{11})/);
+  if (idMatch && idMatch[1]) {
+    return `https://www.youtube-nocookie.com/embed/${idMatch[1]}?autoplay=1`;
+  }
+
+  return youtubeUrl;
 }
 
 export function LessonPlayer({
@@ -65,6 +101,11 @@ export function LessonPlayer({
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceUri, setSelectedVoiceUri] = useState<string>('');
 
+  // Active in-page playing YouTube embed (track ID or segment ID)
+  const [activeEmbedSegmentId, setActiveEmbedSegmentId] = useState<number | null>(null);
+  const [resolvedEmbeds, setResolvedEmbeds] = useState<Record<number, string>>({});
+  const [resolvingSegmentId, setResolvingSegmentId] = useState<number | null>(null);
+
   // Suggest Changes State
   const [isSuggestOpen, setIsSuggestOpen] = useState(false);
   const [userSuggestion, setUserSuggestion] = useState('');
@@ -81,10 +122,10 @@ export function LessonPlayer({
       const voices = window.speechSynthesis.getVoices();
       setAvailableVoices(voices);
 
-      // Default to a good English or system voice
       const preferred = voices.find(
         (v) =>
-          (v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Google')))
+          v.lang.startsWith('en') &&
+          (v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Google'))
       ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
 
       if (preferred && !selectedVoiceUri) {
@@ -100,13 +141,11 @@ export function LessonPlayer({
     };
   }, []);
 
-  // 2. Parse Markdown content into structured segments with TTS breakpoints
+  // 2. Parse Markdown content into structured segments
   const segments = useMemo(() => {
     const lines = content.split('\n');
     const result: Segment[] = [];
     let currentId = 0;
-
-    let hasAddedFirstBreakpoint = false;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -119,59 +158,46 @@ export function LessonPlayer({
 
       if (line.startsWith('## ') || line.startsWith('### ')) {
         const headingText = line.replace(/^#{2,3}\s+/, '').replace(/\*\*/g, '');
-        const isFirst = !hasAddedFirstBreakpoint;
-        if (isFirst) hasAddedFirstBreakpoint = true;
-
         result.push({
           id: currentId++,
           type: 'heading',
           title: headingText,
           text: headingText,
-          rawText: headingText,
-          isBreakpoint: isFirst,
-          breakpointLabel: isFirst ? 'Start Podcast Lesson' : undefined
+          rawSpeechText: sanitizeTextForSpeech(headingText)
         });
       } else {
-        // Check if line contains Spotify or YouTube link
-        const spotifyMatch = line.match(/\[.*?Spotify.*?\]\((https?:\/\/[^\s)]+)\)/i) ||
-                             line.match(/(https:\/\/open\.spotify\.com\/[^\s)]+)/i);
-        const youtubeMatch = line.match(/\[.*?YouTube.*?\]\((https?:\/\/[^\s)]+)\)/i) ||
-                             line.match(/(https:\/\/(?:www\.)?youtube\.com\/[^\s)]+)/i);
+        // Check for YouTube link in line
+        const ytMatch = line.match(/\[(.*?)(?:on\s+YouTube)?\]\((https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)\)/i) ||
+                        line.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)/i);
 
-        const isSongLine = Boolean(spotifyMatch || youtubeMatch);
+        if (ytMatch) {
+          const ytUrl = ytMatch[2] || ytMatch[1];
+          const rawLinkText = ytMatch[1] || '';
+          const songLabel = rawLinkText.replace(/^Play\s+/i, '').replace(/\s+on\s+YouTube$/i, '').replace(/[*"']/g, '').trim() || 'Featured Track';
 
-        // Strip markdown formatting for TTS text
-        const cleanForSpeech = line
-          .replace(/\[(.*?)\]\(.*?\)/g, '$1') // [text](url) -> text
-          .replace(/https?:\/\/\S+/g, '') // remove raw URLs
-          .replace(/[*_~`#]/g, '') // remove markdown symbols
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        if (isSongLine) {
+          // Add inline song segment
           result.push({
             id: currentId++,
-            type: 'song_links',
+            type: 'inline_song',
             text: line,
-            rawText: cleanForSpeech,
-            isBreakpoint: true,
-            breakpointLabel: 'Resume after song',
-            spotifyUrl: spotifyMatch ? (spotifyMatch[1] || spotifyMatch[0]) : undefined,
-            youtubeUrl: youtubeMatch ? (youtubeMatch[1] || youtubeMatch[0]) : undefined
+            songTitle: songLabel,
+            youtubeUrl: ytUrl,
+            rawSpeechText: '' // Songs themselves aren't read by TTS; speech pauses
           });
         } else {
-          // Normal paragraph
-          const isFirst = !hasAddedFirstBreakpoint;
-          if (isFirst) hasAddedFirstBreakpoint = true;
+          // Normal narrative paragraph
+          const cleanedVisual = cleanVisualText(line);
+          const speechText = sanitizeTextForSpeech(line);
 
-          result.push({
-            id: currentId++,
-            type: 'paragraph',
-            text: line,
-            rawText: cleanForSpeech,
-            isBreakpoint: isFirst,
-            breakpointLabel: isFirst ? 'Start Podcast Lesson' : undefined
-          });
+          // Only add if there is actual spoken content
+          if (cleanedVisual.length > 0 && speechText.length > 0) {
+            result.push({
+              id: currentId++,
+              type: 'paragraph',
+              text: cleanedVisual,
+              rawSpeechText: speechText
+            });
+          }
         }
       }
     }
@@ -187,9 +213,11 @@ export function LessonPlayer({
       return;
     }
 
+    // Stop any active YouTube playing embed
+    setActiveEmbedSegmentId(null);
+
     window.speechSynthesis.cancel();
 
-    // Collect all text from startIndex to end
     const remainingSegments = segments.slice(startIndex);
     if (remainingSegments.length === 0) return;
 
@@ -197,7 +225,6 @@ export function LessonPlayer({
     setIsPlaying(true);
     setIsPaused(false);
 
-    // Chain speech utterance segment by segment so highlighting updates accurately
     let currentIdx = startIndex;
 
     const playNext = () => {
@@ -211,7 +238,14 @@ export function LessonPlayer({
       const segment = segments[currentIdx];
       setActiveSegmentIndex(currentIdx);
 
-      const textToSpeak = segment.rawText;
+      // If next item is a song, pause speech so the user can play the song
+      if (segment.type === 'inline_song') {
+        currentIdx++;
+        playNext();
+        return;
+      }
+
+      const textToSpeak = segment.rawSpeechText;
       if (!textToSpeak || textToSpeak.length < 2) {
         currentIdx++;
         playNext();
@@ -245,21 +279,21 @@ export function LessonPlayer({
     playNext();
   };
 
-  const handlePause = () => {
+  const handlePauseTTS = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.pause();
       setIsPaused(true);
     }
   };
 
-  const handleResume = () => {
+  const handleResumeTTS = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.resume();
       setIsPaused(false);
     }
   };
 
-  const handleStop = () => {
+  const handleStopTTS = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       setIsPlaying(false);
@@ -268,10 +302,58 @@ export function LessonPlayer({
     }
   };
 
+  const handlePlayInlineSong = async (seg: Segment) => {
+    // Automatically pause TTS speech so the user can enjoy the music track
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window && isPlaying) {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    }
+
+    // If already resolved, just activate it
+    if (resolvedEmbeds[seg.id]) {
+      setActiveEmbedSegmentId(seg.id);
+      return;
+    }
+
+    // Check if the URL already has a direct 11-char video ID
+    const directIdMatch = seg.youtubeUrl?.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]{11})/);
+    if (directIdMatch && directIdMatch[1]) {
+      const embed = `https://www.youtube-nocookie.com/embed/${directIdMatch[1]}?autoplay=1`;
+      setResolvedEmbeds((prev) => ({ ...prev, [seg.id]: embed }));
+      setActiveEmbedSegmentId(seg.id);
+      return;
+    }
+
+    // Otherwise, resolve search query via server to get the top matching video ID
+    const queryMatch = seg.youtubeUrl?.match(/[?&]search_query=([^&#]+)/);
+    const searchQuery = queryMatch && queryMatch[1] ? decodeURIComponent(queryMatch[1].replace(/\+/g, ' ')) : (seg.songTitle || '');
+
+    setResolvingSegmentId(seg.id);
+    setActiveEmbedSegmentId(seg.id);
+
+    try {
+      const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(searchQuery)}`);
+      const data = await res.json();
+      if (res.ok && data.videoId) {
+        const embed = `https://www.youtube-nocookie.com/embed/${data.videoId}?autoplay=1`;
+        setResolvedEmbeds((prev) => ({ ...prev, [seg.id]: embed }));
+      } else {
+        console.warn('Could not resolve exact video ID, falling back to direct search URL');
+      }
+    } catch (err) {
+      console.error('Failed to resolve video ID:', err);
+    } finally {
+      setResolvingSegmentId(null);
+    }
+  };
+
+  const handleCloseInlineSong = () => {
+    setActiveEmbedSegmentId(null);
+  };
+
   const handleRateChange = (newRate: number) => {
     setSpeechRate(newRate);
     if (isPlaying && activeSegmentIndex !== null) {
-      // Restart current segment with new rate
       startSpeechFromSegment(activeSegmentIndex);
     }
   };
@@ -293,7 +375,7 @@ export function LessonPlayer({
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="px-3 py-1 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30 font-semibold flex items-center gap-1.5 shadow-sm">
               <Radio className="w-3.5 h-3.5 animate-pulse text-pink-400" />
-              Podcast Music Lesson
+              Music Podcast Episode
             </span>
             {topicPrompt && (
               <span className="px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700/80 truncate max-w-xs">
@@ -313,7 +395,7 @@ export function LessonPlayer({
                 className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-600 hover:from-pink-400 hover:to-indigo-500 text-white font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-pink-500/20 transition transform active:scale-95"
               >
                 <Play className="w-4 h-4 fill-white" />
-                <span>Listen to Full Lesson</span>
+                <span>Listen to Full Podcast</span>
               </button>
             </div>
 
@@ -359,7 +441,7 @@ export function LessonPlayer({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-pink-400" />
-              <h3 className="text-sm font-bold text-white">Refine Lesson with Gemini</h3>
+              <h3 className="text-sm font-bold text-white">Refine Podcast with Gemini</h3>
             </div>
             <button
               type="button"
@@ -371,14 +453,14 @@ export function LessonPlayer({
           </div>
 
           <p className="text-xs text-slate-400">
-            Tell Gemini what to modify, add, shorten, or expand in this podcast lesson:
+            Tell Gemini what to modify, add, shorten, or expand in this podcast:
           </p>
 
           <textarea
             rows={3}
             value={userSuggestion}
             onChange={(e) => setUserSuggestion(e.target.value)}
-            placeholder="e.g. Add 2 more obscure funk bands from Nigeria in chapter 2, and explain the rhythm section in more detail..."
+            placeholder="e.g. Expand on the cultural impact of this movement in the 70s, add another representative track, and explain its rhythm in more depth..."
             className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition resize-none"
             autoFocus
           />
@@ -388,7 +470,7 @@ export function LessonPlayer({
               {[
                 'Add more historical context',
                 'Focus more on instruments',
-                'Add 2 more recommended tracks',
+                'Add another track example',
                 'Make it more storytelling-like'
               ].map((chip) => (
                 <button
@@ -410,7 +492,7 @@ export function LessonPlayer({
               {isRefining ? (
                 <>
                   <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                  <span>Refining Lesson...</span>
+                  <span>Refining Podcast...</span>
                 </>
               ) : (
                 <>
@@ -423,11 +505,12 @@ export function LessonPlayer({
         </form>
       )}
 
-      {/* Lesson Body: Chapters, Paragraphs, Song Citations & Breakpoint Listen Buttons */}
+      {/* Lesson Body: Chapters, In-Page Playable YouTube Tracks & Paragraph-Only Resume Buttons */}
       <div className="space-y-4 text-slate-200">
         {segments.map((seg, idx) => {
           const isCurrentlySpeaking = activeSegmentIndex === idx;
 
+          // 1. Chapter Headings (NO resume buttons here)
           if (seg.type === 'heading') {
             return (
               <div
@@ -438,104 +521,127 @@ export function LessonPlayer({
                     : ''
                 }`}
               >
-                <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-pink-500" />
-                    {seg.title}
-                  </h2>
-
-                  {seg.isBreakpoint && (
-                    <button
-                      onClick={() => startSpeechFromSegment(idx)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-pink-400 hover:text-pink-300 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm"
-                      title="Start listening from here"
-                    >
-                      <Play className="w-3 h-3 fill-pink-400" />
-                      <span>Listen</span>
-                    </button>
-                  )}
-                </div>
+                <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
+                  <span>{seg.title}</span>
+                </h2>
               </div>
             );
           }
 
-          if (seg.type === 'song_links') {
+          // 2. In-Page Playable YouTube Tracks (NO resume buttons here; playable inside the page)
+          if (seg.type === 'inline_song') {
+            const isEmbedActive = activeEmbedSegmentId === seg.id;
+
             return (
               <div
                 key={seg.id}
-                className={`my-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900/90 to-slate-950 border border-slate-800/80 shadow-md flex flex-wrap items-center justify-between gap-3 transition-all duration-300 ${
-                  isCurrentlySpeaking ? 'ring-2 ring-pink-500/80 bg-pink-950/20' : ''
-                }`}
+                className="my-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-red-500/30 shadow-lg space-y-3 transition"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-pink-500/10 border border-pink-500/30 flex items-center justify-center text-pink-400 shrink-0">
-                    <Music2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-xs sm:text-sm font-semibold text-white">
-                      {seg.text.replace(/\[.*?\]\(.*?\)/g, '').replace(/https?:\/\/\S+/g, '').replace(/^[-*]\s*/, '').trim() || 'Featured Track'}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      {seg.spotifyUrl && (
-                        <a
-                          href={seg.spotifyUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1 rounded-lg bg-emerald-950/80 hover:bg-emerald-900/90 text-emerald-300 border border-emerald-700/60 text-[11px] font-semibold flex items-center gap-1 transition"
-                        >
-                          <span>Spotify</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                      {seg.youtubeUrl && (
-                        <a
-                          href={seg.youtubeUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1 rounded-lg bg-rose-950/80 hover:bg-rose-900/90 text-rose-300 border border-rose-700/60 text-[11px] font-semibold flex items-center gap-1 transition"
-                        >
-                          <span>YouTube</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-600/15 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                      <Music className="w-5 h-5" />
                     </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/30">
+                        Featured Song
+                      </span>
+                      <h4 className="text-sm sm:text-base font-bold text-white mt-0.5">
+                        {seg.songTitle}
+                      </h4>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Play inside page button */}
+                    <button
+                      onClick={() => handlePlayInlineSong(seg)}
+                      disabled={resolvingSegmentId === seg.id}
+                      className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-red-600/30 transition transform active:scale-95 disabled:opacity-70"
+                    >
+                      {resolvingSegmentId === seg.id ? (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                          <span>Finding Track...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          <span>{isEmbedActive ? 'Playing in Page' : 'Play Song in Page'}</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Direct external link fallback */}
+                    {seg.youtubeUrl && (
+                      <a
+                        href={seg.youtubeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                        title="Open on YouTube website"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
                   </div>
                 </div>
 
-                {/* Resume TTS button right after song link */}
-                <button
-                  onClick={() => startSpeechFromSegment(idx + 1)}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-indigo-300 border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition shadow-sm shrink-0"
-                  title="Resume podcast listening after this song"
-                >
-                  <Play className="w-3 h-3 fill-indigo-400" />
-                  <span>Resume from here</span>
-                </button>
+                {/* Inline Embedded YouTube Iframe Player */}
+                {isEmbedActive && resolvedEmbeds[seg.id] && (
+                  <div className="relative pt-2 animate-fade-in">
+                    <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-red-500/40 bg-black shadow-2xl">
+                      <iframe
+                        src={resolvedEmbeds[seg.id]}
+                        title={`Play ${seg.songTitle}`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-2 px-1">
+                      <span className="text-emerald-400 font-medium">✓ Playing directly inside page. Podcast narration is paused.</span>
+                      <button
+                        onClick={handleCloseInlineSong}
+                        className="flex items-center gap-1 text-red-400 hover:text-red-300 font-semibold"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Close Player</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           }
 
-          // Regular paragraph
+          // 3. Regular Narrative Paragraphs: "Resume from here" button is ONLY placed here at the start
           return (
             <div
               key={seg.id}
-              className={`p-3 rounded-2xl transition-all duration-300 leading-relaxed text-sm sm:text-base ${
+              className={`group relative p-3 sm:p-4 rounded-2xl transition-all duration-300 text-sm sm:text-base leading-relaxed ${
                 isCurrentlySpeaking
                   ? 'bg-indigo-950/40 border border-indigo-500/60 text-white shadow-md'
-                  : 'text-slate-300'
+                  : 'text-slate-300 hover:bg-slate-900/40'
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                {/* Resume from here button at start of paragraph */}
+                <button
+                  onClick={() => startSpeechFromSegment(idx)}
+                  className={`mt-0.5 px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm ${
+                    isCurrentlySpeaking
+                      ? 'bg-pink-600 text-white shadow-pink-600/30'
+                      : 'bg-slate-800 hover:bg-slate-700 text-pink-400 hover:text-pink-300 border border-slate-700'
+                  }`}
+                  title="Resume podcast listening from this paragraph"
+                >
+                  <Play className={`w-3 h-3 ${isCurrentlySpeaking ? 'fill-white' : 'fill-pink-400'}`} />
+                  <span className="hidden sm:inline">Resume from here</span>
+                </button>
+
                 <p className="flex-1 whitespace-pre-wrap">{seg.text}</p>
-                {seg.isBreakpoint && (
-                  <button
-                    onClick={() => startSpeechFromSegment(idx)}
-                    className="p-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-pink-400 border border-slate-700 text-xs transition shrink-0"
-                    title="Listen from this paragraph"
-                  >
-                    <Play className="w-3 h-3 fill-pink-400" />
-                  </button>
-                )}
               </div>
             </div>
           );
@@ -554,7 +660,7 @@ export function LessonPlayer({
                 {title}
               </p>
               <p className="text-[11px] text-pink-300 truncate">
-                {isPaused ? 'Paused' : 'Playing podcast narration...'}
+                {isPaused ? 'Paused (Ready to resume)' : 'Playing podcast narration...'}
               </p>
             </div>
           </div>
@@ -578,7 +684,7 @@ export function LessonPlayer({
             {/* Play/Pause */}
             {isPaused ? (
               <button
-                onClick={handleResume}
+                onClick={handleResumeTTS}
                 className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
                 title="Resume"
               >
@@ -586,7 +692,7 @@ export function LessonPlayer({
               </button>
             ) : (
               <button
-                onClick={handlePause}
+                onClick={handlePauseTTS}
                 className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
                 title="Pause"
               >
@@ -596,7 +702,7 @@ export function LessonPlayer({
 
             {/* Stop */}
             <button
-              onClick={handleStop}
+              onClick={handleStopTTS}
               className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
               title="Stop"
             >

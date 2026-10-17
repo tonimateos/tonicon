@@ -345,7 +345,7 @@ export default function LessonsPage() {
             }`}
           >
             <Plus className="w-4 h-4" />
-            <span>Add Lesson</span>
+            <span>Music Podcasts</span>
             {!isAdmin && <Lock className="w-3 h-3 text-slate-500 ml-0.5" />}
           </button>
         </div>
@@ -530,7 +530,7 @@ export default function LessonsPage() {
                     </h2>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Describe what you'd like to learn about music. Gemini will act as a world music expert and generate a podcast-style lesson with songs and Spotify/YouTube links.
+                    Describe what you'd like to learn about music. Gemini will act as a world music expert and generate a podcast-style lesson with in-page playable YouTube tracks.
                   </p>
                 </div>
 
@@ -606,7 +606,7 @@ export default function LessonsPage() {
                       Synthesizing World Music Knowledge...
                     </p>
                     <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      Gemini is structuring your podcast episode, researching historical context, inserting tracks, and building Spotify & YouTube query links. This takes around 10-15 seconds.
+                      Gemini is structuring your podcast episode, researching historical context, and embedding in-page playable YouTube tracks. This takes around 10-15 seconds.
                     </p>
                   </div>
                 )}
