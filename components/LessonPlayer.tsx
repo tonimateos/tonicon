@@ -13,7 +13,9 @@ import {
   Music,
   ExternalLink,
   Sparkles,
-  X
+  X,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 interface LessonPlayerProps {
@@ -105,6 +107,7 @@ export function LessonPlayer({
   const [activeEmbedSegmentId, setActiveEmbedSegmentId] = useState<number | null>(null);
   const [resolvedEmbeds, setResolvedEmbeds] = useState<Record<number, string>>({});
   const [resolvingSegmentId, setResolvingSegmentId] = useState<number | null>(null);
+  const [isBrave, setIsBrave] = useState<boolean>(false);
 
   // Suggest Changes State
   const [isSuggestOpen, setIsSuggestOpen] = useState(false);
@@ -135,6 +138,13 @@ export function LessonPlayer({
 
     updateVoices();
     window.speechSynthesis.onvoiceschanged = updateVoices;
+
+    // Detect Brave browser to adapt autoplay/sound strategy
+    if (typeof window !== 'undefined' && (navigator as any).brave?.isBrave) {
+      (navigator as any).brave.isBrave().then((res: boolean) => {
+        if (res) setIsBrave(true);
+      }).catch(() => {});
+    }
 
     return () => {
       window.speechSynthesis.cancel();
@@ -302,15 +312,26 @@ export function LessonPlayer({
     }
   };
 
-  const handlePlayInlineSong = async (seg: Segment) => {
-    // Automatically pause TTS speech so the user can enjoy the music track
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window && isPlaying) {
-      window.speechSynthesis.pause();
-      setIsPaused(true);
+  const handlePlayInlineSong = async (seg: Segment, forceClickMode?: boolean) => {
+    // Release speech synthesis session completely so browser/macOS does not duck audio
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+      setIsPaused(false);
     }
 
-    // If already resolved, just activate it
+    // In Brave, cross-origin iframes with autoplay=1 are strictly muted unless clicked directly.
+    // Defaulting to click-to-play in Brave lets the user click the video directly, granting full unmuted audio.
+    const useClickMode = forceClickMode !== undefined ? forceClickMode : isBrave;
+    const autoplayParam = useClickMode ? '0' : '1';
+    const originParam = typeof window !== 'undefined' && window.location.origin ? `&origin=${encodeURIComponent(window.location.origin)}` : '';
+    const embedBase = 'https://www.youtube-nocookie.com/embed';
+
+    // If already resolved, update the autoplay parameter and show immediately
     if (resolvedEmbeds[seg.id]) {
+      const existing = resolvedEmbeds[seg.id];
+      const updated = existing.replace(/autoplay=[01]/, `autoplay=${autoplayParam}`);
+      setResolvedEmbeds((prev) => ({ ...prev, [seg.id]: updated }));
       setActiveEmbedSegmentId(seg.id);
       return;
     }
@@ -318,7 +339,7 @@ export function LessonPlayer({
     // Check if the URL already has a direct 11-char video ID
     const directIdMatch = seg.youtubeUrl?.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]{11})/);
     if (directIdMatch && directIdMatch[1]) {
-      const embed = `https://www.youtube-nocookie.com/embed/${directIdMatch[1]}?autoplay=1`;
+      const embed = `${embedBase}/${directIdMatch[1]}?autoplay=${autoplayParam}&enablejsapi=1&playsinline=1${originParam}`;
       setResolvedEmbeds((prev) => ({ ...prev, [seg.id]: embed }));
       setActiveEmbedSegmentId(seg.id);
       return;
@@ -335,15 +356,35 @@ export function LessonPlayer({
       const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(searchQuery)}`);
       const data = await res.json();
       if (res.ok && data.videoId) {
-        const embed = `https://www.youtube-nocookie.com/embed/${data.videoId}?autoplay=1`;
+        const embed = `${embedBase}/${data.videoId}?autoplay=${autoplayParam}&enablejsapi=1&playsinline=1${originParam}`;
         setResolvedEmbeds((prev) => ({ ...prev, [seg.id]: embed }));
       } else {
-        console.warn('Could not resolve exact video ID, falling back to direct search URL');
+        console.warn('Could not resolve exact video ID, falling back to direct query search');
       }
     } catch (err) {
       console.error('Failed to resolve video ID:', err);
     } finally {
       setResolvingSegmentId(null);
+    }
+  };
+
+  const handleUnmuteIframe = (segId: number) => {
+    const iframe = document.getElementById(`youtube-iframe-${segId}`) as HTMLIFrameElement | null;
+    if (iframe && iframe.contentWindow) {
+      try {
+        const messages = [
+          JSON.stringify({ event: 'command', func: 'unMute', args: '' }),
+          JSON.stringify({ event: 'command', func: 'unMute', args: [] }),
+          JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }),
+          JSON.stringify({ event: 'command', func: 'playVideo', args: '' })
+        ];
+        messages.forEach((msg) => {
+          iframe.contentWindow?.postMessage(msg, '*');
+          iframe.contentWindow?.postMessage(msg, 'https://www.youtube.com');
+        });
+      } catch (err) {
+        console.warn('Could not postMessage to iframe:', err);
+      }
     }
   };
 
@@ -590,18 +631,56 @@ export function LessonPlayer({
 
                 {/* Inline Embedded YouTube Iframe Player */}
                 {isEmbedActive && resolvedEmbeds[seg.id] && (
-                  <div className="relative pt-2 animate-fade-in">
+                  <div className="relative pt-2 animate-fade-in space-y-2">
+                    {/* Audio Status & Unmute Bar */}
+                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-200">
+                      <div className="flex items-center gap-2">
+                        <Volume2 className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>
+                          {isBrave ? (
+                            <>
+                              <strong>Brave Browser detected:</strong> Brave blocks audio in autoplaying embeds. Click the play button (or 🔇 speaker) directly inside the video for sound.
+                            </>
+                          ) : (
+                            <>
+                              <strong>Can&apos;t hear audio?</strong> Browsers mute autoplayed embeds. Click the speaker icon (🔇) in the video or click:
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!isBrave && (
+                          <button
+                            onClick={() => handleUnmuteIframe(seg.id)}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold flex items-center gap-1 transition shadow-sm active:scale-95"
+                            title="Send unmute signal to video"
+                          >
+                            <Volume2 className="w-3.5 h-3.5" />
+                            <span>Unmute Audio</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handlePlayInlineSong(seg, true)}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                          title="Reload in click-to-play mode (plays with full sound on user click)"
+                        >
+                          Click-to-Play Mode
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-red-500/40 bg-black shadow-2xl">
                       <iframe
+                        id={`youtube-iframe-${seg.id}`}
                         src={resolvedEmbeds[seg.id]}
                         title={`Play ${seg.songTitle}`}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                         allowFullScreen
                         className="w-full h-full border-0"
                       />
                     </div>
-                    <div className="flex items-center justify-between text-xs text-slate-400 pt-2 px-1">
-                      <span className="text-emerald-400 font-medium">✓ Playing directly inside page. Podcast narration is paused.</span>
+                    <div className="flex items-center justify-between text-xs text-slate-400 pt-1 px-1">
+                      <span className="text-emerald-400 font-medium">✓ Playing directly in page. Podcast narration stopped.</span>
                       <button
                         onClick={handleCloseInlineSong}
                         className="flex items-center gap-1 text-red-400 hover:text-red-300 font-semibold"

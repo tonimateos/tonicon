@@ -24,6 +24,7 @@ import { LessonPlayer } from '@/components/LessonPlayer';
 import { AdminLoginModal } from '@/components/AdminLoginModal';
 
 const PROMPT_SUGGESTIONS = [
+  'I want to learn about how the music changed in the western world in the 1960s, including folk, pop, rock, jazz, bossa, etc.',
   'The evolution of Brazilian Tropicália and MPB in the late 60s',
   'How Jamaican Dub and Sound System culture gave birth to modern remixing',
   'The golden era of Japanese City Pop and its western yacht-rock roots',
