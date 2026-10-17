@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Music, Calendar, Archive, Sparkles, Heart, Lock, ShieldCheck, LogOut, Compass } from 'lucide-react';
+import { Plus, Music, Calendar, Archive, Sparkles, Heart, Lock, ShieldCheck, LogOut, Compass, BookOpen } from 'lucide-react';
 import { Concert, ActionType } from '@/lib/types';
 import { ConcertCard } from '@/components/ConcertCard';
 import { AddConcertModal } from '@/components/AddConcertModal';
@@ -53,23 +53,26 @@ export default function HomePage() {
   useEffect(() => {
     fetchConcerts();
 
-    // Restore admin session if active
-    const savedPass = sessionStorage.getItem('tonicon_admin_password');
+    // Restore admin session if active from localStorage or sessionStorage
+    const savedPass = localStorage.getItem('tonicon_admin_password') || sessionStorage.getItem('tonicon_admin_password');
     if (savedPass) {
       setAdminPassword(savedPass);
       setIsAdmin(true);
+      localStorage.setItem('tonicon_admin_password', savedPass);
     }
   }, []);
 
   const handleAdminAuthSuccess = (pass: string) => {
     setAdminPassword(pass);
     setIsAdmin(true);
+    localStorage.setItem('tonicon_admin_password', pass);
     sessionStorage.setItem('tonicon_admin_password', pass);
   };
 
   const handleAdminLogout = () => {
     setIsAdmin(false);
     setAdminPassword('');
+    localStorage.removeItem('tonicon_admin_password');
     sessionStorage.removeItem('tonicon_admin_password');
   };
 
@@ -124,6 +127,19 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Always visible: Add Lesson (opens in new tab) */}
+            <Link
+              href="/lessons"
+              target="_blank"
+              rel="noopener noreferrer"
+              id="lessons-btn"
+              className="px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-pink-400 hover:text-pink-300 border border-slate-700/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+              title="Music Lessons (Opens in new tab)"
+            >
+              <BookOpen className="w-4 h-4 text-pink-400" />
+              <span>Music Lessons</span>
+            </Link>
+
             {/* Admin Only: Discover Route Navigation Button */}
             {isAdmin && (
               <Link

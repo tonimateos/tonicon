@@ -67,4 +67,12 @@ export interface DiscoverCrawledSublink {
   crawled_at: string;
 }
 
+export interface Lesson {
+  id: string;
+  title: string;
+  topic_prompt: string;
+  content: string;
+  created_at: string;
+}
+
 

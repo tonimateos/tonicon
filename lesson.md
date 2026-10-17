@@ -30,7 +30,12 @@ The `/lessons` route contains two main tabs:
 ### Initial Generation
 When the user clicks "Send", a request is sent to the Gemini API using the following prompt template:
 
-> "You are a world music expert. The user wants to learn about the following: '{USER_PROMPT}'. Return a detailed lesson that looks like a long podcast. There must be an introduction, a main body divided into chapters with bold titles as h2 tags, and a conclusion. Within the text, insert songs (title, band name, year) as they are referenced in the lesson. Add a section at the end where you list the songs and bands that were mentioned in the lesson, with their respective Spotify and YouTube links."
+> "You are a world music expert. The user wants to learn about the following: '{USER_PROMPT}'. First, return an engaging and concise Lesson Title derived from the user query (formatted as an h1 tag at the very top: # Lesson Title). Then return a detailed lesson that looks like a long podcast. There must be an introduction, a main body divided into chapters with bold titles as h2 tags, and a conclusion. Within the text, insert songs (title, band name, year) as they are referenced in the lesson. Add a section at the end where you list the songs and bands that were mentioned in the lesson, with their respective Spotify and YouTube links."
+
+### Lesson Title Display & Storage
+- **UI Presentation**: The title is extracted and showcased nicely at the top of the lesson as a prominent, stylish hero heading.
+- **Saved Lessons List**: Each card in the "Saved Lessons" tab prominently displays this title along with creation date and prompt excerpt.
+- **Persistence**: The extracted title is saved directly into the `title` column of the `lessons` table in Supabase.
 
 ### Song Links (Spotify & YouTube)
 To prevent broken/hallucinated URLs from LLM output, links are formatted as direct search queries:
@@ -39,10 +44,10 @@ To prevent broken/hallucinated URLs from LLM output, links are formatted as dire
 
 ### Suggest Changes Loop
 Below the generated lesson, two action buttons are shown:
-1. **"Save Lesson"**: Saves the lesson to the database and adds it to the "Saved Lessons" tab.
+1. **"Save Lesson"**: Saves the lesson (including its title, content, and original prompt) to the database and adds it to the "Saved Lessons" tab.
 2. **"Suggest Changes"**: Opens a text field for user feedback/suggestions. On sending suggestions, the prompt sent to Gemini is:
-   > "You are a world music expert. You helped the user with his original intent '{ORIGINAL_USER_PROMPT}', you returned '{PREVIOUS_RETURNED_LESSON}', now the user wants to '{USER_SUGGESTION}'. Return the modified lesson, trying to keep the same format, tone, and structure."
-- The generated response replaces the current lesson, and the **"Save Lesson"** / **"Suggest Changes"** buttons reappear for further iterations.
+   > "You are a world music expert. You helped the user with his original intent '{ORIGINAL_USER_PROMPT}', you returned '{PREVIOUS_RETURNED_LESSON}', now the user wants to '{USER_SUGGESTION}'. Return the modified lesson, maintaining the top # Lesson Title (adjusting if appropriate), format, tone, and structure."
+- The generated response replaces the current lesson, updates the displayed title, and the **"Save Lesson"** / **"Suggest Changes"** buttons reappear for further iterations.
 
 ---
 

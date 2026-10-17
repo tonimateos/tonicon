@@ -100,5 +100,16 @@ CREATE TABLE IF NOT EXISTS public.discover_crawled_sublinks (
 CREATE INDEX IF NOT EXISTS idx_crawled_sublinks_source ON public.discover_crawled_sublinks (source_url);
 ALTER TABLE public.discover_crawled_sublinks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public all access to discover_crawled_sublinks" ON public.discover_crawled_sublinks FOR ALL USING (true) WITH CHECK (true);
+-- 7. Lessons Table
+CREATE TABLE IF NOT EXISTS public.lessons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title TEXT NOT NULL,
+    topic_prompt TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
 
-
+CREATE INDEX IF NOT EXISTS idx_lessons_created_at ON public.lessons (created_at DESC);
+ALTER TABLE public.lessons ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read access to lessons" ON public.lessons FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access to lessons" ON public.lessons FOR INSERT WITH CHECK (true);

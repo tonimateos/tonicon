@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { Concert, Activity, ActionType } from './types';
+import { Concert, Activity, ActionType, Lesson } from './types';
+import fs from 'fs';
+import path from 'path';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseKey =
@@ -126,4 +128,104 @@ export async function addOrUpdateActivity(
   }
 
   return data;
+}
+
+const LOCAL_LESSONS_FILE = path.join(process.cwd(), 'data', 'lessons.json');
+
+function getLocalLessons(): Lesson[] {
+  try {
+    if (fs.existsSync(LOCAL_LESSONS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_LESSONS_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Error reading local lessons file:', e);
+  }
+  return [];
+}
+
+function saveLocalLesson(lesson: Lesson): void {
+  try {
+    const dir = path.dirname(LOCAL_LESSONS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const current = getLocalLessons();
+    current.unshift(lesson);
+    fs.writeFileSync(LOCAL_LESSONS_FILE, JSON.stringify(current, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving local lesson:', e);
+  }
+}
+
+export async function fetchAllLessons(): Promise<Lesson[]> {
+  try {
+    const { data, error } = await supabase
+      .from('lessons')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      return data;
+    }
+    if (error && error.code === 'PGRST205') {
+      console.warn('public.lessons table does not exist in Supabase yet. Using local storage fallback.');
+      return getLocalLessons();
+    }
+    if (error) {
+      console.error('Error fetching lessons from Supabase:', error);
+    }
+  } catch (err) {
+    console.warn('Supabase fetchAllLessons error, falling back to local storage:', err);
+  }
+  return getLocalLessons();
+}
+
+export async function createLesson(lessonData: {
+  title: string;
+  topic_prompt: string;
+  content: string;
+}): Promise<Lesson> {
+  const newLesson: Lesson = {
+    id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `lesson-${Date.now()}`,
+    title: lessonData.title,
+    topic_prompt: lessonData.topic_prompt,
+    content: lessonData.content,
+    created_at: new Date().toISOString()
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('lessons')
+      .insert([{
+        title: lessonData.title,
+        topic_prompt: lessonData.topic_prompt,
+        content: lessonData.content
+      }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      return data;
+    }
+
+    if (error && error.code === 'PGRST205') {
+      console.warn('public.lessons table does not exist in Supabase yet. Saved to local storage fallback.');
+      saveLocalLesson(newLesson);
+      return newLesson;
+    }
+
+    if (error) {
+      console.error('Error creating lesson in Supabase, saving locally:', error);
+      saveLocalLesson(newLesson);
+      return newLesson;
+    }
+  } catch (err) {
+    console.warn('Error connecting to Supabase for createLesson, saving locally:', err);
+    saveLocalLesson(newLesson);
+    return newLesson;
+  }
+
+  saveLocalLesson(newLesson);
+  return newLesson;
 }

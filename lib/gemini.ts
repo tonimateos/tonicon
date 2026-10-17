@@ -103,3 +103,66 @@ function fallbackHeuristicScrape(url: string, rawText: string): ScrapeResult {
     date: concertDate
   };
 }
+
+export async function generateLessonGemini(userPrompt: string): Promise<{ title: string; content: string }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in .env.local');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const rawModel = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').replace(/^["']|["']$/g, '').trim();
+  const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const prompt = `You are a world music expert. The user wants to learn about the following: '${userPrompt}'. First, return an engaging and concise Lesson Title derived from the user query (formatted as an h1 tag at the very top: # Lesson Title). Then return a detailed lesson that looks like a long podcast. There must be an introduction, a main body divided into chapters with bold titles as h2 tags, and a conclusion. Within the text, insert songs (title, band name, year) as they are referenced in the lesson. Add a section at the end where you list the songs and bands that were mentioned in the lesson, with their respective Spotify and YouTube links.
+
+Format requirements for Spotify and YouTube links:
+Format each song link as direct web search query URLs so that they never 404:
+- Spotify link format: [Listen on Spotify](https://open.spotify.com/search/Artist%20Song%20Title)
+- YouTube link format: [Watch on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title)
+
+Write in an engaging, conversational, immersive podcast storytelling voice.`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let title = userPrompt.slice(0, 60);
+  const titleMatch = text.match(/^#\s+(.+)$/m);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].trim().replace(/\*+/g, '');
+  }
+
+  return { title, content: text };
+}
+
+export async function refineLessonGemini(
+  originalPrompt: string,
+  previousLesson: string,
+  userSuggestion: string
+): Promise<{ title: string; content: string }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in .env.local');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const rawModel = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').replace(/^["']|["']$/g, '').trim();
+  const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const prompt = `You are a world music expert. You helped the user with his original intent '${originalPrompt}', you returned '${previousLesson}', now the user wants to '${userSuggestion}'. Return the modified lesson, maintaining the top # Lesson Title (adjusting if appropriate), format, tone, and structure.
+
+Ensure songs are referenced with title, band name, year, and linked with valid search query links for Spotify (https://open.spotify.com/search/...) and YouTube (https://www.youtube.com/results?search_query=...).`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let title = originalPrompt.slice(0, 60);
+  const titleMatch = text.match(/^#\s+(.+)$/m);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].trim().replace(/\*+/g, '');
+  }
+
+  return { title, content: text };
+}
