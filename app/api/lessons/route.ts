@@ -16,7 +16,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { title, topic_prompt, content, password } = body;
+    const { title, topic_prompt, content, password, language } = body;
 
     const expectedPassword = process.env.TONI_ADMIN_PASSWORD || 'tonipass';
     if (!password || password.trim() !== expectedPassword.trim()) {
@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
     const savedLesson = await createLesson({
       title: title.trim(),
       topic_prompt: (topic_prompt || '').trim(),
-      content: content.trim()
+      content: content.trim(),
+      language: language === 'es' ? 'es' : 'en'
     });
 
     return NextResponse.json({ success: true, lesson: savedLesson });

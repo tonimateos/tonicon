@@ -37,13 +37,22 @@ import {
 import { LessonPlayer } from '@/components/LessonPlayer';
 import { AdminLoginModal } from '@/components/AdminLoginModal';
 
-const PROMPT_SUGGESTIONS = [
-  'I want to learn about how the music changed in the western world in the 1960s, including folk, pop, rock, jazz, bossa, etc.',
+const PROMPT_SUGGESTIONS_EN = [
+  'How music changed in the western world in the 1960s (folk, pop, rock, jazz, bossa)',
   'The evolution of Brazilian Tropicália and MPB in the late 60s',
   'How Jamaican Dub and Sound System culture gave birth to modern remixing',
   'The golden era of Japanese City Pop and its western yacht-rock roots',
   'West African Afrobeat: Fela Kuti, Tony Allen, and polyrhythmic resistance',
   'Desert Blues from Mali: How Tuareg guitar music conquered global stages'
+];
+
+const PROMPT_SUGGESTIONS_ES = [
+  'Cómo cambió la música en el mundo occidental en los años 60 (folk, pop, rock, jazz, bossa)',
+  'La evolución del flamenco fusión y el nuevo flamenco (Paco de Lucía, Camarón, Veneno, Pata Negra)',
+  'La Movida Madrileña y la transición sonora de los años 80 en España',
+  'La Bossa Nova de Río de Janeiro: armonías de Jobim, João Gilberto y el cool jazz',
+  'La Fania All-Stars y el nacimiento de la salsa moderna en el Nueva York de los 70',
+  'El rock andino y la psicodelia chicha en el Perú de los años 60 y 70'
 ];
 
 export default function LessonsPage() {
@@ -60,7 +69,8 @@ export default function LessonsPage() {
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Add Lesson generation state
+  // Add Lesson generation state & Language preference
+  const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'es'>('en');
   const [userPrompt, setUserPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
@@ -81,6 +91,7 @@ export default function LessonsPage() {
     title: string;
     content: string;
     topicPrompt: string;
+    language?: 'en' | 'es';
     isSaved: boolean;
   } | null>(null);
 
@@ -152,6 +163,7 @@ export default function LessonsPage() {
             title: data.draft.title || data.draft.topic_prompt,
             content: data.draft.content,
             topicPrompt: data.draft.topic_prompt,
+            language: data.draft.language || 'en',
             isSaved: false
           });
         }
@@ -176,13 +188,14 @@ export default function LessonsPage() {
   };
 
   // SSE Stream Generation Pipeline
-  const startStreamGeneration = async (promptText: string, isResume = false) => {
+  const startStreamGeneration = async (promptText: string, isResume = false, langOverride?: 'en' | 'es') => {
+    const langToUse = langOverride || (isResume && activeBuild?.language ? activeBuild.language : selectedLanguage);
     setIsGenerating(true);
     setGenerationError(null);
     setLiveStatusMessage(
       isResume
-        ? 'Resuming podcast generation...'
-        : '🧠 Gemini is designing the episode syllabus (structuring chapters, artists & songs)...'
+        ? (langToUse === 'es' ? 'Reanudando la generación del podcast...' : 'Resuming podcast generation...')
+        : (langToUse === 'es' ? '🧠 Gemini está diseñando el guión del episodio (estructurando capítulos, artistas y canciones)...' : '🧠 Gemini is designing the episode syllabus (structuring chapters, artists & songs)...')
     );
 
     if (!isResume) {
@@ -201,6 +214,7 @@ export default function LessonsPage() {
         body: JSON.stringify({
           action: isResume ? 'resume' : 'generate',
           userPrompt: promptText,
+          language: langToUse,
           password: adminPassword,
           stream: true
         })
@@ -241,6 +255,7 @@ export default function LessonsPage() {
                   id: prev?.id || `draft-${Date.now()}`,
                   topic_prompt: promptText,
                   title: event.data.title,
+                  language: event.data.language || langToUse,
                   outline_json: event.data,
                   chapters_json: prev?.chapters_json || [],
                   content: `# ${event.data.title}\n\n${event.data.intro}`,
@@ -256,6 +271,7 @@ export default function LessonsPage() {
                   id: prev?.id || `draft-${Date.now()}`,
                   topic_prompt: prev?.topic_prompt || promptText,
                   title: prev?.title || null,
+                  language: prev?.language || langToUse,
                   outline_json: prev?.outline_json || null,
                   status: 'in_progress',
                   updated_at: new Date().toISOString(),
@@ -270,12 +286,14 @@ export default function LessonsPage() {
                   title: event.lesson.title,
                   content: event.lesson.content,
                   topicPrompt: promptText,
+                  language: event.lesson.language || langToUse,
                   isSaved: false
                 });
                 setActiveBuild((prev) => ({
                   id: prev?.id || `draft-${Date.now()}`,
                   topic_prompt: prev?.topic_prompt || promptText,
                   title: event.lesson.title,
+                  language: event.lesson.language || langToUse,
                   outline_json: prev?.outline_json || null,
                   chapters_json: prev?.chapters_json || [],
                   content: event.lesson.content,
@@ -350,7 +368,7 @@ export default function LessonsPage() {
   // Resume active build
   const handleResumeActiveBuild = () => {
     if (!activeBuild) return;
-    startStreamGeneration(activeBuild.topic_prompt, true);
+    startStreamGeneration(activeBuild.topic_prompt, true, activeBuild.language);
   };
 
   // Refine lesson with Gemini
@@ -366,6 +384,7 @@ export default function LessonsPage() {
           action: 'refine',
           originalPrompt: currentDraft.topicPrompt,
           previousLesson: currentDraft.content,
+          language: currentDraft.language || selectedLanguage,
           userSuggestion,
           password: adminPassword,
           stream: false
@@ -406,6 +425,7 @@ export default function LessonsPage() {
           title: currentDraft.title,
           topic_prompt: currentDraft.topicPrompt,
           content: currentDraft.content,
+          language: currentDraft.language || selectedLanguage,
           password: adminPassword
         })
       });
@@ -560,6 +580,7 @@ export default function LessonsPage() {
                   title={selectedLesson.title}
                   content={selectedLesson.content}
                   topicPrompt={selectedLesson.topic_prompt}
+                  language={selectedLesson.language}
                   readOnly
                   isAdmin={isAdmin}
                   adminPassword={adminPassword}
@@ -624,9 +645,16 @@ export default function LessonsPage() {
                                 year: 'numeric'
                               })}
                             </span>
-                            <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
-                              Podcast Episode
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {lesson.language && (
+                                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
+                                  {lesson.language === 'es' ? '🇪🇸 ES' : '🇬🇧 EN'}
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
+                                Podcast Episode
+                              </span>
+                            </div>
                           </div>
 
                           <h3 className="text-base font-bold text-white group-hover:text-pink-300 transition line-clamp-2">
@@ -827,6 +855,7 @@ export default function LessonsPage() {
                   title={currentDraft.title}
                   content={currentDraft.content}
                   topicPrompt={currentDraft.topicPrompt}
+                  language={currentDraft.language || selectedLanguage}
                   onSave={handleSaveLesson}
                   isSaving={isSavingDraft}
                   isSaved={currentDraft.isSaved}
@@ -840,10 +869,17 @@ export default function LessonsPage() {
               /* Unfinished Podcast In-Progress Card (Restored from DB) */
               <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-indigo-950/70 via-slate-900 to-slate-950 border border-amber-500/40 shadow-2xl space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5">
-                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
-                    Unfinished Podcast in Progress
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                      Unfinished Podcast in Progress
+                    </span>
+                    {activeBuild.language && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 text-xs font-semibold">
+                        {activeBuild.language === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-xs text-slate-400">
                     {activeBuild.chapters_json?.length || 0} of {activeBuild.outline_json.chapters.length} chapters completed
                   </span>
@@ -889,6 +925,7 @@ export default function LessonsPage() {
                             title: activeBuild.title || activeBuild.topic_prompt,
                             content: activeBuild.content,
                             topicPrompt: activeBuild.topic_prompt,
+                            language: activeBuild.language || selectedLanguage,
                             isSaved: false
                           });
                         }}
@@ -921,16 +958,55 @@ export default function LessonsPage() {
                   </div>
                 </div>
 
-                <form onSubmit={handleInitiateNewLesson} className="space-y-4">
+                <form onSubmit={handleInitiateNewLesson} className="space-y-5">
+                  {/* Language Selector */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-semibold text-slate-300">
+                      Podcast Language / Idioma del podcast
+                    </label>
+                    <div className="inline-flex p-1 bg-slate-950 border border-slate-800 rounded-2xl gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLanguage('en')}
+                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                          selectedLanguage === 'en'
+                            ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>🇬🇧</span>
+                        <span>English</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLanguage('es')}
+                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                          selectedLanguage === 'es'
+                            ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <span>🇪🇸</span>
+                        <span>Español</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-2">
-                      What would you like to learn about music?
+                      {selectedLanguage === 'es'
+                        ? '¿Sobre qué tema musical te gustaría aprender?'
+                        : 'What would you like to learn about music?'}
                     </label>
                     <textarea
                       rows={4}
                       value={userPrompt}
                       onChange={(e) => setUserPrompt(e.target.value)}
-                      placeholder="e.g. Tell me about the origins of Bossa Nova in Rio de Janeiro, its connection to cool jazz, and the most influential artists..."
+                      placeholder={
+                        selectedLanguage === 'es'
+                          ? 'p.ej. Explícame el nacimiento y evolución del flamenco fusión en los años 70 y 80, desde Paco de Lucía y Camarón hasta Smash y Veneno...'
+                          : 'e.g. Tell me about the origins of Bossa Nova in Rio de Janeiro, its connection to cool jazz, and the most influential artists...'
+                      }
                       className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner resize-none"
                       disabled={isGenerating}
                       required
@@ -940,10 +1016,10 @@ export default function LessonsPage() {
                   {/* Sample prompt chips */}
                   <div className="space-y-2">
                     <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      Need Inspiration? Pick a Topic:
+                      {selectedLanguage === 'es' ? '¿Necesitas inspiración? Elige un tema:' : 'Need Inspiration? Pick a Topic:'}
                     </span>
                     <div className="flex flex-wrap gap-2">
-                      {PROMPT_SUGGESTIONS.map((sug) => (
+                      {(selectedLanguage === 'es' ? PROMPT_SUGGESTIONS_ES : PROMPT_SUGGESTIONS_EN).map((sug) => (
                         <button
                           key={sug}
                           type="button"
@@ -971,7 +1047,7 @@ export default function LessonsPage() {
                       className="px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-pink-600/30 transition transform active:scale-95 disabled:opacity-50"
                     >
                       <Sparkles className="w-4 h-4" />
-                      <span>Generate Deep Podcast Episode</span>
+                      <span>{selectedLanguage === 'es' ? 'Generar episodio de podcast' : 'Generate Deep Podcast Episode'}</span>
                     </button>
                   </div>
                 </form>

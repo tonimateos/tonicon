@@ -81,6 +81,7 @@ export interface Lesson {
   title: string;
   topic_prompt: string;
   content: string;
+  language?: 'en' | 'es';
   created_at: string;
   audio_status?: 'none' | 'in_progress' | 'paused' | 'ready';
   audio_voice?: string;
@@ -100,12 +101,18 @@ export interface ChapterDossier {
     year?: string;
     narrative_context?: string;
   };
+  additional_artists?: Array<{
+    artist: string;
+    song_title: string;
+    context?: string;
+  }>;
   key_talking_points: string[];
 }
 
 export interface LessonOutline {
   title: string;
   intro: string;
+  language?: 'en' | 'es';
   chapters: ChapterDossier[];
   conclusion: string;
 }
@@ -121,6 +128,7 @@ export interface ActiveLessonBuild {
   id: string;
   topic_prompt: string;
   title: string | null;
+  language?: 'en' | 'es';
   outline_json: LessonOutline | null;
   chapters_json: CompletedChapter[];
   content: string;
@@ -133,7 +141,7 @@ export type LessonStreamEvent =
   | { type: 'status'; message: string; step?: string }
   | { type: 'outline'; data: LessonOutline }
   | { type: 'chapter'; chapterIndex: number; chapter: CompletedChapter; accumulatedContent: string }
-  | { type: 'complete'; lesson: { title: string; content: string; totalWords: number } }
+  | { type: 'complete'; lesson: { title: string; content: string; totalWords: number; language?: 'en' | 'es' } }
   | { type: 'error'; error: string };
 
 export type AudioStreamEvent =

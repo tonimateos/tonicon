@@ -9,12 +9,23 @@ export const maxDuration = 120; // Allow sufficient time for multi-step long-for
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, userPrompt, originalPrompt, previousLesson, userSuggestion, password, stream = true } = body;
+    const {
+      action,
+      userPrompt,
+      originalPrompt,
+      previousLesson,
+      userSuggestion,
+      password,
+      language = 'en',
+      stream = true
+    } = body;
 
     const expectedPassword = process.env.TONI_ADMIN_PASSWORD || 'tonipass';
     if (!password || password.trim() !== expectedPassword.trim()) {
       return NextResponse.json({ error: 'Unauthorized. Admin password required.' }, { status: 401 });
     }
+
+    const targetLang: 'en' | 'es' = language === 'es' ? 'es' : 'en';
 
     // Refinement action
     if (action === 'refine') {
@@ -24,7 +35,7 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const result = await refineLessonGemini(originalPrompt, previousLesson, userSuggestion);
+      const result = await refineLessonGemini(originalPrompt, previousLesson, userSuggestion, targetLang);
       return NextResponse.json({ success: true, ...result });
     }
 
@@ -37,6 +48,7 @@ export async function POST(req: NextRequest) {
 
       const promptToUse = draft.topic_prompt;
       const startFrom = draft.chapters_json ? draft.chapters_json.length : 0;
+      const draftLang = draft.outline_json.language || draft.language || targetLang;
 
       if (stream) {
         const readable = new ReadableStream({
@@ -47,7 +59,7 @@ export async function POST(req: NextRequest) {
             };
 
             try {
-              await generateFullLessonV2(promptToUse, sendEvent, startFrom);
+              await generateFullLessonV2(promptToUse, sendEvent, startFrom, draftLang);
               controller.close();
             } catch (err: any) {
               console.error('Error during streamed resume generation:', err);
@@ -68,7 +80,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const result = await generateFullLessonV2(promptToUse, undefined, startFrom);
+      const result = await generateFullLessonV2(promptToUse, undefined, startFrom, draftLang);
       return NextResponse.json({ success: true, ...result });
     }
 
@@ -88,7 +100,7 @@ export async function POST(req: NextRequest) {
           };
 
           try {
-            await generateFullLessonV2(cleanPrompt, sendEvent, 0);
+            await generateFullLessonV2(cleanPrompt, sendEvent, 0, targetLang);
             controller.close();
           } catch (err: any) {
             console.error('Error during streamed lesson generation:', err);
@@ -109,7 +121,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const result = await generateFullLessonV2(cleanPrompt);
+    const result = await generateFullLessonV2(cleanPrompt, undefined, 0, targetLang);
     return NextResponse.json({ success: true, ...result });
   } catch (err: any) {
     console.error('Failed to generate lesson with Gemini:', err);

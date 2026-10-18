@@ -36,6 +36,7 @@ interface LessonPlayerProps {
   title: string;
   content: string;
   topicPrompt?: string;
+  language?: 'en' | 'es';
   onSave?: () => void;
   isSaving?: boolean;
   isSaved?: boolean;
@@ -62,13 +63,13 @@ interface Segment {
 function sanitizeTextForSpeech(raw: string): string {
   return raw
     // Remove sound cues like (Intro music fades in...) or [Music fades]
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
     .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
-    // Remove speaker labels like **Host:**, Host:, Narrator:
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    // Remove speaker labels like **Host:**, Host:, Narrator:, Locutor:
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
     // Format markdown song links into spoken track names
-    .replace(/\[(?:Play\s+)?(.*?)(?:\s+on\s+YouTube)?\]\(.*?\)/gi, '$1')
+    .replace(/\[(?:Play|Escuchar|Reproducir)?\s*(.*?)(?:\s+(?:on|en)\s+YouTube)?\]\(.*?\)/gi, '$1')
     .replace(/\[(.*?)\]\(.*?\)/g, '$1')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/[*_~`#]/g, '')
@@ -79,10 +80,10 @@ function sanitizeTextForSpeech(raw: string): string {
 function cleanVisualText(raw: string): string {
   return raw
     // Remove sound cues like (Intro music fades in...)
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
     // Remove speaker labels like **Host:** or Host:
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
     .trim();
 }
 
@@ -106,6 +107,7 @@ export function LessonPlayer({
   title,
   content,
   topicPrompt,
+  language,
   onSave,
   isSaving,
   isSaved,
@@ -118,6 +120,7 @@ export function LessonPlayer({
   initialAudioStatus
 }: LessonPlayerProps) {
   const effectiveLessonId = lessonId || id;
+  const isSpanish = language === 'es' || /\b(el|la|los|las|de|en|un|una|por|para|con|este|esta|canción|música)\b/i.test(title + ' ' + content.slice(0, 400));
 
   // Studio Audio State (Lesson v3)
   const [audioSegments, setAudioSegments] = useState<AudioSegment[]>(initialAudioSegments || []);
@@ -186,11 +189,32 @@ export function LessonPlayer({
       const voices = window.speechSynthesis.getVoices();
       setAvailableVoices(voices);
 
-      const preferred = voices.find(
-        (v) =>
-          v.lang.startsWith('en') &&
-          (v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Google'))
-      ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+      const targetLang = isSpanish ? 'es' : 'en';
+
+      const preferred =
+        targetLang === 'es'
+          ? voices.find(
+            (v) =>
+              v.lang.startsWith('es') &&
+              (v.name.includes('Natural') ||
+                v.name.includes('Google') ||
+                v.name.includes('Jorge') ||
+                v.name.includes('Mónica') ||
+                v.name.includes('Monica') ||
+                v.name.includes('Paulina'))
+          ) ||
+          voices.find((v) => v.lang.startsWith('es')) ||
+          voices[0]
+          : voices.find(
+            (v) =>
+              v.lang.startsWith('en') &&
+              (v.name.includes('Natural') ||
+                v.name.includes('Samantha') ||
+                v.name.includes('Daniel') ||
+                v.name.includes('Google'))
+          ) ||
+          voices.find((v) => v.lang.startsWith('en')) ||
+          voices[0];
 
       if (preferred && !selectedVoiceUri) {
         setSelectedVoiceUri(preferred.voiceURI);
@@ -204,7 +228,7 @@ export function LessonPlayer({
     if (typeof window !== 'undefined' && (navigator as any).brave?.isBrave) {
       (navigator as any).brave.isBrave().then((res: boolean) => {
         if (res) setIsBrave(true);
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     return () => {
@@ -238,13 +262,19 @@ export function LessonPlayer({
         });
       } else {
         // Check for YouTube link in line
-        const ytMatch = line.match(/\[(.*?)(?:on\s+YouTube)?\]\((https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)\)/i) ||
-                        line.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)/i);
+        const ytMatch =
+          line.match(/\[(.*?)(?:(?:on|en)\s+YouTube)?\]\((https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)\)/i) ||
+          line.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)/i);
 
         if (ytMatch) {
           const ytUrl = ytMatch[2] || ytMatch[1];
           const rawLinkText = ytMatch[1] || '';
-          const songLabel = rawLinkText.replace(/^Play\s+/i, '').replace(/\s+on\s+YouTube$/i, '').replace(/[*"']/g, '').trim() || 'Featured Track';
+          const songLabel =
+            rawLinkText
+              .replace(/^(?:Play|Escuchar|Reproducir)\s+/i, '')
+              .replace(/\s+(?:on|en)\s+YouTube$/i, '')
+              .replace(/[*"'`]/g, '')
+              .trim() || 'Featured Track';
 
           // Add inline song segment
           result.push({
@@ -449,7 +479,7 @@ export function LessonPlayer({
           action: 'pause',
           password: adminPassword || (typeof window !== 'undefined' ? localStorage.getItem('tonicon_admin_password') : null) || 'godzilla'
         })
-      }).catch(() => {});
+      }).catch(() => { });
     }
   };
 
@@ -849,11 +879,10 @@ export function LessonPlayer({
                   <button
                     onClick={onSave}
                     disabled={isSaving || isSaved}
-                    className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition shadow-md ${
-                      isSaved
-                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/80'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
-                    }`}
+                    className={`px-4 py-2.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition shadow-md ${isSaved
+                      ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/80'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
+                      }`}
                   >
                     <BookmarkCheck className="w-4 h-4" />
                     <span>{isSaved ? 'Lesson Saved' : isSaving ? 'Saving...' : 'Save Lesson'}</span>
@@ -939,11 +968,10 @@ export function LessonPlayer({
                 <button
                   type="button"
                   onClick={() => setAudioMode('studio')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
-                    audioMode === 'studio'
-                      ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${audioMode === 'studio'
+                    ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   <Mic className="w-3.5 h-3.5" />
                   <span>Studio Voice</span>
@@ -951,11 +979,10 @@ export function LessonPlayer({
                 <button
                   type="button"
                   onClick={() => setAudioMode('browser')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
-                    audioMode === 'browser'
-                      ? 'bg-slate-800 text-white shadow-md'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${audioMode === 'browser'
+                    ? 'bg-slate-800 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   Browser Voice
                 </button>
@@ -1006,17 +1033,11 @@ export function LessonPlayer({
                 </div>
               </div>
 
-              {quotaNotice && (
+              {quotaNotice && audioSegments.length > 0 && (
                 <div className="text-[11px] text-amber-300/80 bg-black/40 rounded-xl p-2.5 border border-amber-500/20">
-                  {audioSegments.length > 0 ? (
-                    <span>
-                      All {audioSegments.length} converted paragraphs are permanently stored in Supabase. You can continue listening now with Studio + Browser Voice, or resume once the rate limit resets.
-                    </span>
-                  ) : (
-                    <span>
-                      Free-tier requests reached Google rate limit. Click Resume once the wait period has elapsed.
-                    </span>
-                  )}
+                  <span>
+                    {audioSegments.length} segments converted and saved so far.
+                  </span>
                 </div>
               )}
             </div>
@@ -1046,80 +1067,83 @@ export function LessonPlayer({
             </div>
           )}
         </div>
-      )}
+      )
+      }
 
       {/* Suggest Changes Interactive Drawer */}
-      {isSuggestOpen && !readOnly && isAdmin && (
-        <form
-          onSubmit={handleSubmitSuggestion}
-          className="p-5 rounded-2xl bg-slate-900/90 border border-pink-500/40 shadow-xl space-y-3 backdrop-blur-md animate-fade-in"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-pink-400" />
-              <h3 className="text-sm font-bold text-white">Refine Podcast with Gemini</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsSuggestOpen(false)}
-              className="text-xs text-slate-400 hover:text-white"
-            >
-              Cancel
-            </button>
-          </div>
-
-          <p className="text-xs text-slate-400">
-            Tell Gemini what to modify, add, shorten, or expand in this podcast:
-          </p>
-
-          <textarea
-            rows={3}
-            value={userSuggestion}
-            onChange={(e) => setUserSuggestion(e.target.value)}
-            placeholder="e.g. Expand on the cultural impact of this movement in the 70s, add another representative track, and explain its rhythm in more depth..."
-            className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition resize-none"
-            autoFocus
-          />
-
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                'Add more historical context',
-                'Focus more on instruments',
-                'Add another track example',
-                'Make it more storytelling-like'
-              ].map((chip) => (
-                <button
-                  key={chip}
-                  type="button"
-                  onClick={() => setUserSuggestion(chip)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700/60 transition"
-                >
-                  {chip}
-                </button>
-              ))}
+      {
+        isSuggestOpen && !readOnly && isAdmin && (
+          <form
+            onSubmit={handleSubmitSuggestion}
+            className="p-5 rounded-2xl bg-slate-900/90 border border-pink-500/40 shadow-xl space-y-3 backdrop-blur-md animate-fade-in"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-pink-400" />
+                <h3 className="text-sm font-bold text-white">Refine Podcast with Gemini</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSuggestOpen(false)}
+                className="text-xs text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={isRefining || !userSuggestion.trim()}
-              className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-lg shadow-pink-600/30 transition disabled:opacity-50"
-            >
-              {isRefining ? (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                  <span>Refining Podcast...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Send Suggestion</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      )}
+            <p className="text-xs text-slate-400">
+              Tell Gemini what to modify, add, shorten, or expand in this podcast:
+            </p>
+
+            <textarea
+              rows={3}
+              value={userSuggestion}
+              onChange={(e) => setUserSuggestion(e.target.value)}
+              placeholder="e.g. Expand on the cultural impact of this movement in the 70s, add another representative track, and explain its rhythm in more depth..."
+              className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition resize-none"
+              autoFocus
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  'Add more historical context',
+                  'Focus more on instruments',
+                  'Add another track example',
+                  'Make it more storytelling-like'
+                ].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => setUserSuggestion(chip)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700/60 transition"
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="submit"
+                disabled={isRefining || !userSuggestion.trim()}
+                className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-lg shadow-pink-600/30 transition disabled:opacity-50"
+              >
+                {isRefining ? (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                    <span>Refining Podcast...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Send Suggestion</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )
+      }
 
       {/* Lesson Body: Chapters, In-Page Playable YouTube Tracks & Paragraph-Only Resume Buttons */}
       <div className="space-y-4 text-slate-200">
@@ -1132,11 +1156,10 @@ export function LessonPlayer({
               <div
                 id={`segment-${seg.id}`}
                 key={seg.id}
-                className={`pt-6 pb-2 transition-all duration-300 ${
-                  isCurrentlySpeaking
-                    ? 'p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/50 shadow-lg'
-                    : ''
-                }`}
+                className={`pt-6 pb-2 transition-all duration-300 ${isCurrentlySpeaking
+                  ? 'p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/50 shadow-lg'
+                  : ''
+                  }`}
               >
                 <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-pink-500 shrink-0" />
@@ -1277,21 +1300,19 @@ export function LessonPlayer({
             <div
               id={`segment-${seg.id}`}
               key={seg.id}
-              className={`group relative p-3 sm:p-4 rounded-2xl transition-all duration-300 text-sm sm:text-base leading-relaxed ${
-                isCurrentlySpeaking
-                  ? 'bg-indigo-950/40 border border-indigo-500/60 text-white shadow-md'
-                  : 'text-slate-300 hover:bg-slate-900/40'
-              }`}
+              className={`group relative p-3 sm:p-4 rounded-2xl transition-all duration-300 text-sm sm:text-base leading-relaxed ${isCurrentlySpeaking
+                ? 'bg-indigo-950/40 border border-indigo-500/60 text-white shadow-md'
+                : 'text-slate-300 hover:bg-slate-900/40'
+                }`}
             >
               <div className="flex items-start gap-3">
                 {/* Resume from here button at start of paragraph */}
                 <button
                   onClick={() => startSpeechFromSegment(idx)}
-                  className={`mt-0.5 px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm ${
-                    isCurrentlySpeaking
-                      ? 'bg-pink-600 text-white shadow-pink-600/30'
-                      : 'bg-slate-800 hover:bg-slate-700 text-pink-400 hover:text-pink-300 border border-slate-700'
-                  }`}
+                  className={`mt-0.5 px-2.5 py-1 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shrink-0 shadow-sm ${isCurrentlySpeaking
+                    ? 'bg-pink-600 text-white shadow-pink-600/30'
+                    : 'bg-slate-800 hover:bg-slate-700 text-pink-400 hover:text-pink-300 border border-slate-700'
+                    }`}
                   title="Resume podcast listening from this paragraph"
                 >
                   <Play className={`w-3 h-3 ${isCurrentlySpeaking ? 'fill-white' : 'fill-pink-400'}`} />
@@ -1314,93 +1335,94 @@ export function LessonPlayer({
       </div>
 
       {/* Floating Sticky TTS Player Control Bar */}
-      {isPlaying && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-2xl bg-slate-900/95 border border-pink-500/40 rounded-3xl p-3 sm:p-4 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-4 animate-slide-up">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400 shrink-0">
-              {audioMode === 'studio' ? (
-                <Mic className="w-5 h-5 text-pink-400 animate-pulse" />
-              ) : (
-                <Headphones className="w-5 h-5 animate-bounce" />
-              )}
-            </div>
-            <div className="overflow-hidden">
-              <p className="text-xs font-semibold text-white truncate">
-                {title}
-              </p>
-              <p className="text-[11px] text-pink-300 truncate flex items-center gap-1.5">
-                <span>{isPaused ? 'Paused (Ready to resume)' : 'Playing podcast narration...'}</span>
-                {audioMode === 'studio' && (
-                  <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                    Studio Voice
-                  </span>
+      {
+        isPlaying && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-2xl bg-slate-900/95 border border-pink-500/40 rounded-3xl p-3 sm:p-4 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-4 animate-slide-up">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400 shrink-0">
+                {audioMode === 'studio' ? (
+                  <Mic className="w-5 h-5 text-pink-400 animate-pulse" />
+                ) : (
+                  <Headphones className="w-5 h-5 animate-bounce" />
                 )}
-              </p>
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-semibold text-white truncate">
+                  {title}
+                </p>
+                <p className="text-[11px] text-pink-300 truncate flex items-center gap-1.5">
+                  <span>{isPaused ? 'Paused (Ready to resume)' : 'Playing podcast narration...'}</span>
+                  {audioMode === 'studio' && (
+                    <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                      Studio Voice
+                    </span>
+                  )}
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Speed Control */}
-            <div className="hidden sm:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs text-slate-300">
-              {[0.9, 1, 1.25].map((rate) => (
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Speed Control */}
+              <div className="hidden sm:flex items-center gap-1 bg-slate-950 px-2 py-1 rounded-xl border border-slate-800 text-xs text-slate-300">
+                {[0.9, 1, 1.25].map((rate) => (
+                  <button
+                    key={rate}
+                    onClick={() => handleRateChange(rate)}
+                    className={`px-1.5 py-0.5 rounded ${speechRate === rate ? 'bg-pink-600 text-white font-bold' : 'hover:text-white'
+                      }`}
+                  >
+                    {rate}x
+                  </button>
+                ))}
+              </div>
+
+              {/* Chapter Skip & Play/Pause */}
+              <button
+                onClick={() => handleSkipChapter('prev')}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                title="Previous chapter"
+              >
+                <SkipBack className="w-3.5 h-3.5" />
+              </button>
+
+              {isPaused ? (
                 <button
-                  key={rate}
-                  onClick={() => handleRateChange(rate)}
-                  className={`px-1.5 py-0.5 rounded ${
-                    speechRate === rate ? 'bg-pink-600 text-white font-bold' : 'hover:text-white'
-                  }`}
+                  onClick={handleResumeTTS}
+                  className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
+                  title="Resume"
                 >
-                  {rate}x
+                  <Play className="w-4 h-4 fill-white" />
                 </button>
-              ))}
+              ) : (
+                <button
+                  onClick={handlePauseTTS}
+                  className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
+                  title="Pause"
+                >
+                  <Pause className="w-4 h-4 fill-white" />
+                </button>
+              )}
+
+              <button
+                onClick={() => handleSkipChapter('next')}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                title="Next chapter"
+              >
+                <SkipForward className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Stop */}
+              <button
+                onClick={handleStopTTS}
+                className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+                title="Stop"
+              >
+                <Square className="w-4 h-4 fill-slate-300" />
+              </button>
             </div>
-
-            {/* Chapter Skip & Play/Pause */}
-            <button
-              onClick={() => handleSkipChapter('prev')}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-              title="Previous chapter"
-            >
-              <SkipBack className="w-3.5 h-3.5" />
-            </button>
-
-            {isPaused ? (
-              <button
-                onClick={handleResumeTTS}
-                className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
-                title="Resume"
-              >
-                <Play className="w-4 h-4 fill-white" />
-              </button>
-            ) : (
-              <button
-                onClick={handlePauseTTS}
-                className="p-2.5 rounded-2xl bg-pink-600 hover:bg-pink-500 text-white transition shadow-lg shadow-pink-600/30"
-                title="Pause"
-              >
-                <Pause className="w-4 h-4 fill-white" />
-              </button>
-            )}
-
-            <button
-              onClick={() => handleSkipChapter('next')}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-              title="Next chapter"
-            >
-              <SkipForward className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Stop */}
-            <button
-              onClick={handleStopTTS}
-              className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
-              title="Stop"
-            >
-              <Square className="w-4 h-4 fill-slate-300" />
-            </button>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+    </div >
   );
 }

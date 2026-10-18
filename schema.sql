@@ -136,7 +136,15 @@ ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'none',
 ADD COLUMN IF NOT EXISTS audio_voice TEXT DEFAULT 'default',
 ADD COLUMN IF NOT EXISTS audio_segments JSONB DEFAULT '[]'::jsonb;
 
+-- 10. Language Preference Column (English / Spanish)
+ALTER TABLE public.lessons
+ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
+
+ALTER TABLE public.active_lesson_build
+ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
+
 -- Allow update access for lessons audio rendering
 DROP POLICY IF EXISTS "Allow public update access to lessons" ON public.lessons;
 CREATE POLICY "Allow public update access to lessons" ON public.lessons FOR UPDATE USING (true) WITH CHECK (true);
+
 

@@ -185,28 +185,51 @@ export async function createLesson(lessonData: {
   title: string;
   topic_prompt: string;
   content: string;
+  language?: 'en' | 'es';
 }): Promise<Lesson> {
   const newLesson: Lesson = {
     id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `lesson-${Date.now()}`,
     title: lessonData.title,
     topic_prompt: lessonData.topic_prompt,
     content: lessonData.content,
+    language: lessonData.language || 'en',
     created_at: new Date().toISOString()
   };
 
   try {
+    const insertPayload: any = {
+      title: lessonData.title,
+      topic_prompt: lessonData.topic_prompt,
+      content: lessonData.content
+    };
+    if (lessonData.language) {
+      insertPayload.language = lessonData.language;
+    }
+
     const { data, error } = await supabase
       .from('lessons')
-      .insert([{
-        title: lessonData.title,
-        topic_prompt: lessonData.topic_prompt,
-        content: lessonData.content
-      }])
+      .insert([insertPayload])
       .select()
       .single();
 
     if (!error && data) {
       return data;
+    }
+
+    // Graceful fallback if language column does not exist in Supabase
+    if (error && error.message?.includes('language')) {
+      const { data: retryData, error: retryError } = await supabase
+        .from('lessons')
+        .insert([{
+          title: lessonData.title,
+          topic_prompt: lessonData.topic_prompt,
+          content: lessonData.content
+        }])
+        .select()
+        .single();
+      if (!retryError && retryData) {
+        return { ...retryData, language: lessonData.language || 'en' };
+      }
     }
 
     if (error && error.code === 'PGRST205') {
@@ -299,6 +322,7 @@ export async function saveActiveLessonBuild(
     id,
     topic_prompt: buildData.topic_prompt,
     title: buildData.title !== undefined ? buildData.title : (existing?.title || null),
+    language: buildData.language !== undefined ? buildData.language : (existing?.language || 'en'),
     outline_json: buildData.outline_json !== undefined ? buildData.outline_json : (existing?.outline_json || null),
     chapters_json: buildData.chapters_json !== undefined ? buildData.chapters_json : (existing?.chapters_json || []),
     content: buildData.content !== undefined ? buildData.content : (existing?.content || ''),
@@ -308,25 +332,52 @@ export async function saveActiveLessonBuild(
   };
 
   try {
+    const upsertPayload: any = {
+      id: updated.id,
+      topic_prompt: updated.topic_prompt,
+      title: updated.title,
+      outline_json: updated.outline_json,
+      chapters_json: updated.chapters_json,
+      content: updated.content,
+      status: updated.status,
+      current_step: updated.current_step,
+      updated_at: updated.updated_at
+    };
+    if (updated.language) {
+      upsertPayload.language = updated.language;
+    }
+
     const { data, error } = await supabase
       .from('active_lesson_build')
-      .upsert([{
-        id: updated.id,
-        topic_prompt: updated.topic_prompt,
-        title: updated.title,
-        outline_json: updated.outline_json,
-        chapters_json: updated.chapters_json,
-        content: updated.content,
-        status: updated.status,
-        current_step: updated.current_step,
-        updated_at: updated.updated_at
-      }])
+      .upsert([upsertPayload])
       .select()
       .single();
 
     if (!error && data) {
       saveLocalActiveBuild(data);
       return data;
+    }
+
+    if (error && error.message?.includes('language')) {
+      const { data: retryData, error: retryError } = await supabase
+        .from('active_lesson_build')
+        .upsert([{
+          id: updated.id,
+          topic_prompt: updated.topic_prompt,
+          title: updated.title,
+          outline_json: updated.outline_json,
+          chapters_json: updated.chapters_json,
+          content: updated.content,
+          status: updated.status,
+          current_step: updated.current_step,
+          updated_at: updated.updated_at
+        }])
+        .select()
+        .single();
+      if (!retryError && retryData) {
+        saveLocalActiveBuild({ ...retryData, language: updated.language });
+        return { ...retryData, language: updated.language };
+      }
     }
 
     if (error) {

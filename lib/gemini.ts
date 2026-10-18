@@ -118,7 +118,10 @@ function fallbackHeuristicScrape(url: string, rawText: string): ScrapeResult {
   };
 }
 
-export async function planLessonCurriculum(userPrompt: string): Promise<LessonOutline> {
+export async function planLessonCurriculum(
+  userPrompt: string,
+  language: 'en' | 'es' = 'en'
+): Promise<LessonOutline> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not configured in .env.local');
@@ -129,18 +132,75 @@ export async function planLessonCurriculum(userPrompt: string): Promise<LessonOu
   const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
   const model = genAI.getGenerativeModel({ model: modelName });
 
-  const prompt = `You are an elite music historian, ethnomusicologist, and podcast executive producer. The listener wants an exhaustive, deep-dive podcast episode on: '${userPrompt}'.
+  const isSpanish = language === 'es';
 
-Plan a master-class podcast episode consisting of an introduction hook, 5 to 6 extensive chapters, and a conclusion.
+  const prompt = isSpanish
+    ? `Eres un erudito historiador musical, musicólogo y productor de podcasts culturales de prestigio (al estilo de Radio Clásica / Radio 3 de RNE, BBC Radio 4 o France Musique). El oyente busca un documental sonoro riguroso, sobrio y en profundidad sobre: '${userPrompt}'.
 
-Return a strict JSON object with this exact structure:
+ESTILO Y TONO OBLIGATORIOS (CRÍTICO):
+- Tono europeo, equilibrado, reflexivo, culto y ensayístico.
+- CERO sensacionalismo, cero clichés de marketing y cero tópicos vacíos (está TERMINANTEMENTE PROHIBIDO usar expresiones efectistas o entusiasmo fingido como "¡esto te volará la cabeza!", "¡abróchate el cinturón!", "¡una auténtica locura!", "¡increíble!").
+- Trata al oyente como a un adulto inteligente interesado en el contexto sociopolítico real, la teoría musical y la historia fáctica, sin fuegos artificiales ni postureo.
+- AMPLITUD DE ARTISTAS: En cada capítulo, selecciona el artista o banda principal a analizar a fondo, pero incluye también nombres de otros artistas clave de la escena (coetáneos, influencias, bandas asociadas o pioneros locales) con una canción ilustrativa para cada uno.
+
+Planifica un episodio magistral de 5 a 6 capítulos extensos, además de introducción y conclusión.
+
+Devuelve EXCLUSIVAMENTE un objeto JSON estricto con esta estructura:
 {
-  "title": "Short, punchy, direct episode title (maximum 5-8 words, strictly no fluff or clickbait)",
-  "intro": "Brief spoken hook, cultural setting, and thesis of the episode (approx 150-200 words)",
+  "title": "Título del episodio conciso, sobrio y directo (máximo 5-8 palabras, sin adornos ni clickbait)",
+  "language": "es",
+  "intro": "Gancho introductorio narrado, marco histórico-social y tesis del episodio (aprox. 150-200 palabras)",
   "chapters": [
     {
       "chapter_number": 1,
-      "title": "Descriptive and evocative chapter title",
+      "title": "Título temático del capítulo",
+      "historical_context_reasons": "Contexto histórico, tensiones sociales o catalizadores culturales de este sonido",
+      "artist_spotlight": "Artista o grupo principal a analizar a fondo, su instrumentación, técnica y visión",
+      "musical_theory_focus": "Conceptos de armonía, ritmo, instrumentación o producción en estudio a desgranar",
+      "featured_song": {
+        "title": "Título exacto de la canción",
+        "artist": "Nombre del artista",
+        "year": "1971",
+        "narrative_context": "Por qué este tema ejemplifica el sonido de este capítulo"
+      },
+      "additional_artists": [
+        {
+          "artist": "Nombre de artista coetáneo o influencia",
+          "song_title": "Canción representativa",
+          "context": "Breve relación con el movimiento o escena"
+        }
+      ],
+      "key_talking_points": [
+        "Punto 1",
+        "Punto 2",
+        "Punto 3",
+        "Punto 4"
+      ]
+    }
+  ],
+  "conclusion": "Reflexión final sobria sobre el legado, mutaciones posteriores y cierre (aprox. 150-250 palabras)"
+}
+
+Devuelve ÚNICAMENTE el JSON válido, sin bloques de código ni texto adicional.`
+    : `You are an erudite musicologist, cultural historian, and producer of serious audio documentaries (in the tradition of BBC Radio 3/4, France Musique, and Criterion/ECM audio essays). The listener wants a rigorous, exhaustive, deep-dive podcast episode on: '${userPrompt}'.
+
+EDITORIAL TONE & CRITICAL MANDATE:
+- Sober, measured, articulate, and thoughtful. European documentary essay style.
+- STRICTLY NO AMERICAN PODCAST HYPERBOLE, clickbait phrasing, or commercial hype: ABSOLUTELY FORBIDDEN to use sensationalist fluff ("buckle up", "mind-blowing", "insane", "literally changed everything forever", "super excited", "OMG").
+- Treat the listener as an intelligent adult seeking genuine historical context, social-cultural depth, music theory, and honest artistic critique without corporate or radio-DJ bullshit.
+- WIDE ARTIST PANORAMA: In every chapter, identify not only the primary artist(s) for in-depth analysis, but also other notable artists (peers, predecessors, collaborators, or scene contemporaries) each with a concrete illustrative track.
+
+Plan a master-class episode consisting of an introductory hook, 5 to 6 extensive chapters, and a conclusion.
+
+Return a strict JSON object with this exact structure:
+{
+  "title": "Short, sober, direct episode title (maximum 5-8 words, strictly no fluff or clickbait)",
+  "language": "en",
+  "intro": "Spoken hook, cultural setting, and thesis of the episode (approx 150-200 words)",
+  "chapters": [
+    {
+      "chapter_number": 1,
+      "title": "Descriptive and thematic chapter title",
       "historical_context_reasons": "Detailed societal backdrop, cultural catalysts, or economic/political tensions driving this chapter's sound",
       "artist_spotlight": "Name of the primary artist or band featured, their background, instrumental setup, and artistic impact to explore",
       "musical_theory_focus": "Specific sound design, rhythm, scales, or studio techniques to dissect in this chapter",
@@ -150,6 +210,13 @@ Return a strict JSON object with this exact structure:
         "year": "1971",
         "narrative_context": "Why this track exemplifies the chapter"
       },
+      "additional_artists": [
+        {
+          "artist": "Artist Name",
+          "song_title": "Illustrative Song Title",
+          "context": "Their role in the movement or scene"
+        }
+      ],
       "key_talking_points": [
         "Point 1",
         "Point 2",
@@ -181,6 +248,7 @@ Do NOT include Markdown formatting fences or introductory text. Return only vali
     throw new Error('Gemini failed to generate structured chapters in syllabus outline.');
   }
 
+  parsed.language = language;
   return parsed;
 }
 
@@ -189,7 +257,8 @@ export async function generateLessonChapter(
   chapterBrief: ChapterDossier,
   previousChapterEnding: string = '',
   isFirst: boolean = false,
-  isLast: boolean = false
+  isLast: boolean = false,
+  language: 'en' | 'es' = 'en'
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -201,34 +270,90 @@ export async function generateLessonChapter(
   const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
   const model = genAI.getGenerativeModel({ model: modelName });
 
+  const isSpanish = language === 'es';
+
   const searchQuery = encodeURIComponent(
     `${chapterBrief.featured_song.artist} ${chapterBrief.featured_song.title}`.replace(/\s+/g, '+')
   );
 
-  const prompt = `You are the charismatic world-expert host of this deep-dive music podcast.
-Episode: '${episodeTitle}'.
-You are speaking Chapter ${chapterBrief.chapter_number}: '${chapterBrief.title}'.
+  const additionalArtistsList = (chapterBrief.additional_artists || [])
+    .map(
+      (a) =>
+        `- ${a.artist}: track "${a.song_title}" (${a.context || 'scene contemporary'}). Embed as [Play "${a.song_title}" by ${a.artist} on YouTube](https://www.youtube.com/results?search_query=${encodeURIComponent(`${a.artist} ${a.song_title}`.replace(/\s+/g, '+'))})`
+    )
+    .join('\n');
 
-YOUR MANDATE FOR THIS CHAPTER:
-- Historical context & reasons: Explain why this sound emerged in this specific time and place (${chapterBrief.historical_context_reasons}).
-- Dedicate significant time to the artist spotlight: ${chapterBrief.artist_spotlight}. Explain their upbringing, their instruments/gear, their struggle, and their mindset.
-- Break down the musical theory and production: ${chapterBrief.musical_theory_focus}. Make technical musical concepts (rhythms, scales, studio techniques) vivid and engaging for a listener.
-- Track Curation & Additional Songs:
-  - Introduce the primary planned track: [Play "${chapterBrief.featured_song.title}" by ${chapterBrief.featured_song.artist} on YouTube](https://www.youtube.com/results?search_query=${searchQuery}) and analyze its specific moments, riffs, or rhythms.
-  - Freedom to add more songs: If you feel it helps illustrate the artist's range, evolution, or a pivotal contrast, you are expressly encouraged to introduce 1 or 2 additional songs by this artist (or their close collaborators/influences). Every additional song must also be embedded organically with its YouTube search query link: [Play "Song Title" by Artist on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title).
-- Cover all chapter talking points thoroughly:
+  const prompt = isSpanish
+    ? `Eres el narrador y especialista cultural de este podcast documental sobre música.
+Episodio: '${episodeTitle}'.
+Capítulo ${chapterBrief.chapter_number}: '${chapterBrief.title}'.
+
+DIRECTRICES DE ESTILO Y TONO EDITORIAL (CRÍTICAS):
+- Tono documental europeo (estilo BBC Radio 4 / Radio Clásica RNE): sobrio, reflexivo, culto, preciso y honesto.
+- ESTRICTAMENTE PROHIBIDO el tono sensacionalista, efectista o "americano": cero hipérboles ("locura", "alucinante", "te volará la cabeza", "abróchate el cinturón", "increíble revolución que lo cambió todo"). Sin postureo, sin lenguaje de marketing ni falso entusiasmo "OMG".
+- Rigor técnico: explica la armonía, ritmos, tímbrica e instrumentación con claridad analítica, tratando al oyente como a un adulto inteligente.
+
+MANDATO DE CONTENIDO Y ARTISTAS:
+1. Contexto histórico y social: Por qué este sonido surgió en este momento y lugar (${chapterBrief.historical_context_reasons}).
+2. Protagonista central: Dedica el análisis biográfico y estilístico en profundidad a ${chapterBrief.artist_spotlight} (instrumentación, técnicas, lucha creativa y visión).
+3. Teoría musical y producción: Desgrana ${chapterBrief.musical_theory_focus} con agudeza auditiva.
+4. Canción principal analizada:
+   Introduce y disecciona: [Play "${chapterBrief.featured_song.title}" by ${chapterBrief.featured_song.artist} on YouTube](https://www.youtube.com/results?search_query=${searchQuery})
+5. AMPLITUD DE ARTISTAS Y PANORAMA MUSICAL (OBLIGATORIO):
+   - No limites el capítulo a un único músico. Menciona y sitúa en el contexto a otros artistas relevantes, contemporáneos, influencias o pioneros de la escena.
+${additionalArtistsList ? `   Artistas adicionales sugeridos a integrar:\n${additionalArtistsList}\n` : ''}
+   - CADA ARTISTA MENCIONADO DEBE LLEVAR AL MENOS UNA REFERENCIA CONCRETA A UNA CANCIÓN CON SU ENLACE A YOUTUBE.
+   - Formato exacto de cada enlace: [Play "Título de Canción" by Artista on YouTube](https://www.youtube.com/results?search_query=Artista+Cancion).
+   - Incluye entre 3 y 5 canciones en total a lo largo del capítulo, integradas fluidamente en la narración.
+6. Puntos clave a cubrir:
+${chapterBrief.key_talking_points.map((p) => `- ${p}`).join('\n')}
+
+${previousChapterEnding ? `Enlaza con naturalidad desde el final del capítulo anterior: "${previousChapterEnding.slice(-300)}"` : ''}
+
+Longitud objetivo: 900 a 1.200 palabras para este capítulo.
+Idioma: Escribe todo el capítulo en ESPAÑOL culto, natural y fluido.
+
+NORMAS PARA SÍNTESIS DE VOZ:
+- Texto puramente narrado para ser leído en voz alta por un sintetizador de voz.
+- NINGUNA acotación sonora: nada de '(Música de fondo...)', nada de '[Aplausos]', nada de '(Fade out)'.
+- NINGUNA etiqueta de locutor: nada de '**Locutor:**', ni 'Narrador:'.
+- Encabeza el capítulo con su título como Markdown h2: ## ${chapterBrief.title}
+- ${isLast ? 'Cierra con una reflexión sobria sobre el legado duradero de este movimiento.' : 'No cierres todo el podcast aquí; concluye con un puente natural hacia el siguiente tema.'}`
+    : `You are the narrator and cultural essayist of this deep-dive music documentary podcast.
+Episode: '${episodeTitle}'.
+Chapter ${chapterBrief.chapter_number}: '${chapterBrief.title}'.
+
+EDITORIAL TONE & VOICE MANDATE (CRITICAL):
+- Sober, measured, articulate, European documentary style (BBC Radio 4 / France Musique).
+- STRICTLY FORBIDDEN: American podcast clickbait, sensationalist hype, or artificial excitement ("mind-blowing", "insane", "buckle up", "game-changer", "everything is so exciting OMG"). No marketing fluff or corporate bullshit.
+- Treat musical theory and historical developments with intellectual honesty, nuance, and grounded critique.
+
+CONTENT, ARTISTS & TRACK MANDATE:
+1. Historical & cultural catalysts: Detail why this sound arose in this specific socio-cultural context (${chapterBrief.historical_context_reasons}).
+2. Core Artist Spotlight: Focus in-depth critical analysis on ${chapterBrief.artist_spotlight} (craft, instruments, studio experiments, mindset).
+3. Music Theory & Production: Break down ${chapterBrief.musical_theory_focus} (harmonic structures, rhythm, timbre, production).
+4. Primary featured song analysis:
+   Introduce and dissect [Play "${chapterBrief.featured_song.title}" by ${chapterBrief.featured_song.artist} on YouTube](https://www.youtube.com/results?search_query=${searchQuery}).
+5. EXPANDED ARTIST SCENE PANORAMA (MANDATORY):
+   - You MUST name-check and contextualize multiple other relevant artists from this movement (peers, predecessors, local scene players, collaborators, or rivals) to avoid a narrow "great man" narrative.
+${additionalArtistsList ? `   Suggested scene artists to weave in:\n${additionalArtistsList}\n` : ''}
+   - EVERY ARTIST MENTIONED MUST INCLUDE AT LEAST ONE SPECIFIC ILLUSTRATIVE SONG REFERENCE WITH A MARKDOWN YOUTUBE LINK.
+   - Exact link format: [Play "Song Title" by Artist on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title).
+   - Aim for 3 to 5 total song references across the chapter, woven naturally into the historical and musical prose.
+6. Cover all chapter talking points thoroughly:
 ${chapterBrief.key_talking_points.map((p) => `- ${p}`).join('\n')}
 
 ${previousChapterEnding ? `Bridge naturally from the preceding chapter context: "${previousChapterEnding.slice(-300)}"` : ''}
 
-Target length: 900 to 1,200 words for this chapter alone. Be rich, articulate, and vivid.
+Target length: 900 to 1,200 words for this chapter alone. Rich, articulate, and insightful.
+Language: Write strictly in polished ENGLISH.
 
 CRITICAL SPOKEN RULES:
 - Write purely spoken narration meant to be read directly aloud by a voice synthesizer.
 - Absolutely NO sound directions: no '(Intro music fades in...)', no '[Applause]', no '(Drum roll)'.
 - Absolutely NO speaker labels: no '**Host:**', no 'Host:', no 'Narrator:'.
 - Format this chapter with its title as a Markdown h2 at the very beginning: ## ${chapterBrief.title}
-- ${isLast ? 'Provide a natural conclusion summarizing the legacy and ripple effects of this movement.' : 'Do NOT conclude or wrap up the entire podcast in this chapter; end with a natural bridge to the next topic.'}`;
+- ${isLast ? 'Provide a natural, sober conclusion reflecting on the enduring legacy and ripple effects of this movement.' : 'Do NOT conclude or wrap up the entire podcast in this chapter; end with a natural bridge to the next topic.'}`;
 
   const result = await model.generateContent(prompt);
   let text = result.response.text().trim();
@@ -244,36 +369,49 @@ CRITICAL SPOKEN RULES:
 export async function generateFullLessonV2(
   userPrompt: string,
   onEvent?: (event: LessonStreamEvent) => Promise<void> | void,
-  resumeFromChapterIndex: number = 0
+  resumeFromChapterIndex: number = 0,
+  language: 'en' | 'es' = 'en'
 ): Promise<{ title: string; content: string }> {
   let existingDraft = await fetchActiveLessonBuild();
   let outline: LessonOutline;
+
+  // Detect language from draft or parameter
+  const effectiveLanguage: 'en' | 'es' =
+    existingDraft?.outline_json?.language || existingDraft?.language || language;
 
   // 1. Phase 1: Planning / Syllabus Outline
   if (existingDraft && existingDraft.outline_json && resumeFromChapterIndex > 0) {
     outline = existingDraft.outline_json;
     if (onEvent) {
-      await onEvent({ type: 'status', message: `Resuming podcast "${outline.title}" from Chapter ${resumeFromChapterIndex + 1}...` });
+      const msg = effectiveLanguage === 'es'
+        ? `Reanudando el podcast "${outline.title}" desde el Capítulo ${resumeFromChapterIndex + 1}...`
+        : `Resuming podcast "${outline.title}" from Chapter ${resumeFromChapterIndex + 1}...`;
+      await onEvent({ type: 'status', message: msg });
       await onEvent({ type: 'outline', data: outline });
     }
   } else {
     if (onEvent) {
-      await onEvent({ type: 'status', message: '🧠 Gemini is designing the episode syllabus (structuring chapters, selecting artists & curating songs)...' });
+      const msg = effectiveLanguage === 'es'
+        ? '🧠 Gemini está diseñando el guion del episodio (estructurando capítulos, seleccionando artistas y curando temas)...'
+        : '🧠 Gemini is designing the episode syllabus (structuring chapters, selecting artists & curating songs)...';
+      await onEvent({ type: 'status', message: msg });
     }
 
     // Save initial planning status to DB
     await saveActiveLessonBuild({
       topic_prompt: userPrompt,
+      language: effectiveLanguage,
       status: 'planning',
       current_step: 'planning_syllabus'
     });
 
-    outline = await planLessonCurriculum(userPrompt);
+    outline = await planLessonCurriculum(userPrompt, effectiveLanguage);
 
     // Save outline to DB
     await saveActiveLessonBuild({
       topic_prompt: userPrompt,
       title: outline.title,
+      language: effectiveLanguage,
       outline_json: outline,
       chapters_json: [],
       content: `# ${outline.title}\n\n${outline.intro}`,
@@ -283,7 +421,10 @@ export async function generateFullLessonV2(
 
     if (onEvent) {
       await onEvent({ type: 'outline', data: outline });
-      await onEvent({ type: 'status', message: `✓ Syllabus created: "${outline.title}". Writing Chapter 1/${outline.chapters.length}...` });
+      const readyMsg = effectiveLanguage === 'es'
+        ? `✓ Guion estructurado: "${outline.title}". Escribiendo Capítulo 1/${outline.chapters.length}...`
+        : `✓ Syllabus created: "${outline.title}". Writing Chapter 1/${outline.chapters.length}...`;
+      await onEvent({ type: 'status', message: readyMsg });
     }
   }
 
@@ -309,14 +450,24 @@ export async function generateFullLessonV2(
         : outline.intro;
 
     if (onEvent) {
+      const writingMsg = effectiveLanguage === 'es'
+        ? `✍️ Gemini está redactando el Capítulo ${i + 1}/${outline.chapters.length}: "${chapterBrief.title}" (${chapterBrief.artist_spotlight.split(',')[0].slice(0, 35)})...`
+        : `✍️ Gemini is writing Chapter ${i + 1}/${outline.chapters.length}: "${chapterBrief.title}" (spotlighting ${chapterBrief.artist_spotlight.split(',')[0].slice(0, 35)})...`;
       await onEvent({
         type: 'status',
-        message: `✍️ Gemini is writing Chapter ${i + 1}/${outline.chapters.length}: "${chapterBrief.title}" (spotlighting ${chapterBrief.artist_spotlight.split(',')[0].slice(0, 35)})...`,
+        message: writingMsg,
         step: `chapter_${i + 1}`
       });
     }
 
-    const chapterText = await generateLessonChapter(outline.title, chapterBrief, previousEnding, isFirst, isLast);
+    const chapterText = await generateLessonChapter(
+      outline.title,
+      chapterBrief,
+      previousEnding,
+      isFirst,
+      isLast,
+      effectiveLanguage
+    );
     const wordCount = chapterText.split(/\s+/).filter(Boolean).length;
 
     const completed: CompletedChapter = {
@@ -333,6 +484,7 @@ export async function generateFullLessonV2(
     await saveActiveLessonBuild({
       topic_prompt: userPrompt,
       title: outline.title,
+      language: effectiveLanguage,
       outline_json: outline,
       chapters_json: completedChapters,
       content: accumulatedContent,
@@ -349,17 +501,21 @@ export async function generateFullLessonV2(
       });
 
       if (!isLast) {
+        const nextMsg = effectiveLanguage === 'es'
+          ? `⚡ Capítulo ${i + 1} completado (${wordCount} palabras). Iniciando Capítulo ${i + 2}: "${outline.chapters[i + 1].title}"...`
+          : `⚡ Chapter ${i + 1} received (${wordCount} words). Starting Chapter ${i + 2}: "${outline.chapters[i + 1].title}"...`;
         await onEvent({
           type: 'status',
-          message: `⚡ Chapter ${i + 1} received (${wordCount} words). Starting Chapter ${i + 2}: "${outline.chapters[i + 1].title}"...`
+          message: nextMsg
         });
       }
     }
   }
 
   // 3. Append Conclusion if present and not already concluding
-  if (outline.conclusion && !accumulatedContent.includes('## Conclusion')) {
-    const conclusionMarkdown = `## Conclusion\n\n${outline.conclusion}`;
+  const conclusionHeading = effectiveLanguage === 'es' ? '## Conclusión' : '## Conclusion';
+  if (outline.conclusion && !accumulatedContent.includes(conclusionHeading)) {
+    const conclusionMarkdown = `${conclusionHeading}\n\n${outline.conclusion}`;
     accumulatedContent += `\n\n${conclusionMarkdown}`;
   }
 
@@ -369,6 +525,7 @@ export async function generateFullLessonV2(
   await saveActiveLessonBuild({
     topic_prompt: userPrompt,
     title: outline.title,
+    language: effectiveLanguage,
     outline_json: outline,
     chapters_json: completedChapters,
     content: accumulatedContent,
@@ -390,15 +547,19 @@ export async function generateFullLessonV2(
   return { title: outline.title, content: accumulatedContent };
 }
 
-export async function generateLessonGemini(userPrompt: string): Promise<{ title: string; content: string }> {
+export async function generateLessonGemini(
+  userPrompt: string,
+  language: 'en' | 'es' = 'en'
+): Promise<{ title: string; content: string }> {
   // Uses V2 multi-step generation pipeline
-  return generateFullLessonV2(userPrompt);
+  return generateFullLessonV2(userPrompt, undefined, 0, language);
 }
 
 export async function refineLessonGemini(
   originalPrompt: string,
   previousLesson: string,
-  userSuggestion: string
+  userSuggestion: string,
+  language: 'en' | 'es' = 'en'
 ): Promise<{ title: string; content: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -410,13 +571,33 @@ export async function refineLessonGemini(
   const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
   const model = genAI.getGenerativeModel({ model: modelName });
 
-  const prompt = `You are a world music expert. You helped the user with his original intent '${originalPrompt}', you returned '${previousLesson}', now the user wants to '${userSuggestion}'. Return the modified lesson, maintaining a short, direct, no-nonsense top # Lesson Title (maximum 5-8 words, no fluff or clickbait), format, tone, structure, and inline YouTube song links placed within the text.
+  const isSpanish = language === 'es' || /\b(el|la|los|las|de|en|un|una|por|para|música)\b/i.test(previousLesson.slice(0, 300));
 
-Adhere strictly to the spoken text rules:
-- Write purely spoken narration meant to be read directly aloud by a voice synthesizer.
-- No sound cues/directions (NO '(intro music fades in)', NO '[applause]', NO '(music)').
-- No speaker labels (NO '**Host:**', 'Host:', 'Narrator:').
-- Ensure YouTube links are placed inline within the text where songs are discussed, formatted as https://www.youtube.com/results?search_query=Artist+Song+Title.`;
+  const prompt = isSpanish
+    ? `Eres un experto musicólogo y documentalista cultural de prestigio (estilo BBC Radio 4 / Radio Clásica RNE). Ayudaste al usuario con el tema original '${originalPrompt}', devolviste '${previousLesson}', y ahora el usuario pide: '${userSuggestion}'.
+
+Devuelve el podcast modificado manteniendo:
+- Título conciso y sobrio de máximo 5-8 palabras, sin adornos ni clickbait (# Título).
+- Tono reflexivo, culto, honesto y equilibrado, sin hipérboles ni lenguaje de marketing ("sin postureo", sin frases como "te volará la cabeza" o "increíble locura").
+- Enlaces a YouTube para cada canción/artista mencionado, formateados como [Play "Título de Canción" by Artista on YouTube](https://www.youtube.com/results?search_query=Artista+Cancion).
+- Redacción estrictamente en ESPAÑOL culto.
+
+Reglas estrictas de locución:
+- Texto puramente narrado para sintetizador de voz.
+- Cero acotaciones sonoras ('(música)', '[aplausos]').
+- Cero etiquetas de locutor ('**Locutor:**').`
+    : `You are an elite musicologist and cultural documentary essayist (in the tradition of BBC Radio 4 / France Musique). You assisted the user with '${originalPrompt}', provided '${previousLesson}', and now the user wants to '${userSuggestion}'.
+
+Return the modified podcast, maintaining:
+- A sober, direct title of maximum 5-8 words, strictly no fluff or clickbait (# Title).
+- A balanced, European documentary tone: sober, measured, analytical, zero hype or American sensationalist fluff ("no bullshit", no "mind-blowing", "insane", or "OMG").
+- Clear structure with multiple artists contextualized and inline YouTube song links for each artist mentioned, formatted as [Play "Song Title" by Artist on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title).
+- Polished, articulate English prose.
+
+Spoken text rules:
+- Pure spoken narration meant to be read directly aloud.
+- No sound directions ('(music)', '[applause]').
+- No speaker labels ('**Host:**').`;
 
   const result = await model.generateContent(prompt);
   const text = result.response.text().trim();
@@ -463,15 +644,15 @@ export function hashText(text: string): string {
 
 export function sanitizeSpokenText(text: string): string {
   return text
-    // Remove markdown song links like [Play "Song" by Artist on YouTube](...)
-    .replace(/\[(?:Play\s+)?(.*?)(?:\s+on\s+YouTube)?\]\(.*?\)/gi, '$1')
+    // Remove markdown song links like [Play "Song" by Artist on YouTube](...) or [Escuchar "Canción" de Artista en YouTube](...)
+    .replace(/\[(?:Play|Escuchar|Reproducir)?\s*(.*?)(?:\s+(?:on|en)\s+YouTube)?\]\(.*?\)/gi, '$1')
     .replace(/\[(.*?)\]\(.*?\)/g, '$1')
     // Remove sound cues
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
     .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
     // Remove speaker labels
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
     // Remove raw URLs
     .replace(/https?:\/\/\S+/g, '')
     // Remove markdown formatting tokens
