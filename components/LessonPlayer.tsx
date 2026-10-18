@@ -28,7 +28,7 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
-import { AudioSegment, AudioStreamEvent } from '@/lib/types';
+import { AudioSegment, AudioStreamEvent, extractQuotaWaitTime } from '@/lib/types';
 
 interface LessonPlayerProps {
   id?: string;
@@ -126,6 +126,7 @@ export function LessonPlayer({
   const [isConvertingAudio, setIsConvertingAudio] = useState(false);
   const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
   const [conversionProgress, setConversionProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 });
+  const [quotaNotice, setQuotaNotice] = useState<{ message: string; retryAfter?: string } | null>(null);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -330,6 +331,7 @@ export function LessonPlayer({
   const handleStartAudioConversion = async (isResume = false) => {
     if (!effectiveLessonId) return;
     setIsConvertingAudio(true);
+    setQuotaNotice(null);
     setAudioStatusMessage(isResume ? 'Resuming studio voice conversion...' : 'Starting studio voice conversion...');
 
     const abortController = new AbortController();
@@ -385,8 +387,20 @@ export function LessonPlayer({
                 setAudioSegments(event.audioSegments);
                 setAudioMode('studio');
                 setAudioStatusMessage(null);
+                setQuotaNotice(null);
               } else if (event.type === 'error') {
-                throw new Error(event.error);
+                const isQuota = Boolean(event.isQuota || /quota|rate limit|resource_exhausted/i.test(event.error));
+                const waitTime = event.retryAfter || extractQuotaWaitTime(event.error);
+                if (isQuota || waitTime) {
+                  setQuotaNotice({
+                    message: event.error,
+                    retryAfter: waitTime || undefined
+                  });
+                }
+                const err = new Error(event.error);
+                (err as any).isQuota = isQuota;
+                (err as any).retryAfter = waitTime;
+                throw err;
               }
             } catch (pErr) {
               console.warn('Failed to parse audio event:', pErr);
@@ -399,8 +413,19 @@ export function LessonPlayer({
         setAudioStatus('paused');
       } else {
         console.error('Audio conversion error:', err);
-        alert(`Voice conversion paused: ${err.message}`);
         setAudioStatus('paused');
+
+        const isQuota = Boolean(err.isQuota || /quota|rate limit|resource_exhausted/i.test(err.message));
+        const waitTime = err.retryAfter || extractQuotaWaitTime(err.message);
+
+        if (isQuota || waitTime) {
+          setQuotaNotice({
+            message: err.message,
+            retryAfter: waitTime || undefined
+          });
+        } else {
+          alert(`Voice conversion paused: ${err.message}`);
+        }
       }
     } finally {
       setIsConvertingAudio(false);
@@ -893,34 +918,64 @@ export function LessonPlayer({
                 </button>
               </div>
             </div>
-          ) : audioSegments.length > 0 ? (
-            /* State: Paused / Partial */
-            <div className="p-4 rounded-3xl bg-amber-950/40 border border-amber-500/40 shadow-lg flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/30">
-                  <RotateCcw className="w-4 h-4 text-amber-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-amber-200">Voice Conversion Paused</span>
-                    <span className="text-[10px] text-amber-300 font-semibold bg-amber-950 px-2 py-0.5 rounded-full border border-amber-800/60">
-                      {audioSegments.length} of {spokenSegmentsCount} Ready
-                    </span>
+          ) : audioSegments.length > 0 || quotaNotice ? (
+            /* State: Paused / Partial / Quota Notice */
+            <div className="p-4 sm:p-5 rounded-3xl bg-amber-950/40 border border-amber-500/40 shadow-lg space-y-3 animate-fade-in backdrop-blur-md">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/30 shrink-0">
+                    {quotaNotice ? (
+                      <Clock className="w-5 h-5 text-amber-400" />
+                    ) : (
+                      <RotateCcw className="w-5 h-5 text-amber-400" />
+                    )}
                   </div>
-                  <p className="text-[11px] text-slate-400">Saved permanently. Resume anytime without re-converting.</p>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-amber-200 uppercase tracking-wide">
+                        {quotaNotice ? 'Gemini Quota Exceeded — Conversion Paused' : 'Voice Conversion Paused'}
+                      </span>
+                      <span className="text-[10px] text-amber-300 font-semibold bg-amber-950 px-2 py-0.5 rounded-full border border-amber-800/60">
+                        {audioSegments.length} of {spokenSegmentsCount} Ready
+                      </span>
+                    </div>
+                    {quotaNotice?.retryAfter ? (
+                      <p className="text-xs text-amber-200 mt-1 font-medium">
+                        Google suggests waiting <span className="font-bold text-amber-100 bg-amber-900/80 px-2 py-0.5 rounded border border-amber-600/60">{quotaNotice.retryAfter}</span> before resuming.
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Saved permanently. Resume anytime without re-converting.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleStartAudioConversion(audioSegments.length > 0)}
+                    className="px-4 py-2 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-amber-600/30"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Resume Conversion</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleStartAudioConversion(true)}
-                  className="px-4 py-2 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-amber-600/30"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Resume Conversion</span>
-                </button>
-              </div>
+              {quotaNotice && (
+                <div className="text-[11px] text-amber-300/80 bg-black/40 rounded-xl p-2.5 border border-amber-500/20">
+                  {audioSegments.length > 0 ? (
+                    <span>
+                      All {audioSegments.length} converted paragraphs are permanently stored in Supabase. You can continue listening now with Studio + Browser Voice, or resume once the rate limit resets.
+                    </span>
+                  ) : (
+                    <span>
+                      Free-tier requests reached Google rate limit. Click Resume once the wait period has elapsed.
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             /* State: Never Converted */

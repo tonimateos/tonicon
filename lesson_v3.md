@@ -206,3 +206,5 @@ class DualBufferAudioQueue {
   - Restrict voice conversion button to **saved lessons only**.
   - Add "Convert to Studio Voice" and "Resume Voice Conversion" buttons with live progress feedback.
 - [x] **Dual-Buffer Audio Engine**: Implement preloading queue with auto-scroll and 1-click paragraph seeking.
+- [x] **Rate Limit & Quota Auto-Pause**: Detect Gemini HTTP 429 and `RESOURCE_EXHAUSTED` responses; parse and format the suggested wait duration (e.g. `~39 seconds` or `17 hours, 14 seconds`), pause conversion, safeguard all converted audio segments in Supabase, and present an in-UI resume notice.
+

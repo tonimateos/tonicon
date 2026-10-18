@@ -140,7 +140,97 @@ export type AudioStreamEvent =
   | { type: 'status'; message: string; completedCount: number; totalCount: number }
   | { type: 'segment_ready'; segment: AudioSegment; completedCount: number; totalCount: number }
   | { type: 'complete'; lessonId: string; totalSegments: number; audioSegments: AudioSegment[] }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; isQuota?: boolean; retryAfter?: string };
+
+/**
+ * Parses duration strings returned in Google Gemini rate-limit / quota errors
+ * (e.g., "Please retry in 38.202879563s.", "Please retry in 17h14.442568019s.")
+ * into human-readable formatted wait times.
+ */
+export function extractQuotaWaitTime(errorMessage: string | undefined | null): string | null {
+  if (!errorMessage || typeof errorMessage !== 'string') return null;
+
+  const match = errorMessage.match(/(?:please\s+retry\s+in|retry\s+after|retry\s+in)\s+([0-9a-zA-Z\.]+)/i);
+  if (!match || !match[1]) return null;
+  const raw = match[1].trim().replace(/\.$/, '');
+
+  // If raw is just an integer (e.g., seconds from Retry-After)
+  if (/^\d+$/.test(raw)) {
+    const totalSecs = parseInt(raw, 10);
+    if (totalSecs < 60) return `${totalSecs} second${totalSecs !== 1 ? 's' : ''}`;
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return `${m} minute${m !== 1 ? 's' : ''}${s > 0 ? `, ${s} second${s !== 1 ? 's' : ''}` : ''}`;
+  }
+
+  let remaining = raw;
+  let hours = 0;
+  let minutes = 0;
+  let seconds = 0;
+
+  const h = remaining.match(/^(\d+)h/i);
+  if (h) {
+    hours = parseInt(h[1], 10);
+    remaining = remaining.slice(h[0].length);
+  }
+  const m = remaining.match(/^(\d+)m(?!s)/i);
+  if (m) {
+    minutes = parseInt(m[1], 10);
+    remaining = remaining.slice(m[0].length);
+  }
+  const s = remaining.match(/^([\d\.]+)s(?:ec(?:onds?)?)?/i);
+  if (s) {
+    seconds = parseFloat(s[1]);
+    remaining = remaining.slice(s[0].length);
+  }
+
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours} hour${hours > 1 ? 's' : ''}`);
+  if (minutes > 0) parts.push(`${minutes} minute${minutes > 1 ? 's' : ''}`);
+  if (seconds > 0) {
+    const secRounded = hours > 0 || minutes > 0 ? Math.round(seconds) : Math.ceil(seconds);
+    if (secRounded > 0) {
+      parts.push(`${secRounded} second${secRounded > 1 ? 's' : ''}`);
+    }
+  }
+
+  if (parts.length > 0) {
+    return parts.join(', ');
+  }
+  return raw;
+}
+
+/**
+ * Checks whether an HTTP status or error message represents a Gemini quota or rate limit exhaustion.
+ */
+export function isQuotaError(messageOrStatus: string | number | undefined | null, messageText?: string): boolean {
+  if (typeof messageOrStatus === 'number' && messageOrStatus === 429) return true;
+  const combined = `${messageOrStatus || ''} ${messageText || ''}`.toLowerCase();
+  return (
+    combined.includes('quota') ||
+    combined.includes('resource_exhausted') ||
+    combined.includes('rate limit') ||
+    combined.includes('rate_limit') ||
+    combined.includes('free_tier_requests') ||
+    combined.includes('please retry in') ||
+    combined.includes('retry in')
+  );
+}
+
+export class GeminiQuotaExceededError extends Error {
+  isQuota: boolean = true;
+  retryAfter: string | null;
+  rawWaitTime: string | null;
+
+  constructor(message: string, retryAfter: string | null = null, rawWaitTime: string | null = null) {
+    super(message);
+    this.name = 'GeminiQuotaExceededError';
+    this.isQuota = true;
+    this.retryAfter = retryAfter;
+    this.rawWaitTime = rawWaitTime;
+  }
+}
+
 
 
 

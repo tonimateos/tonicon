@@ -7,9 +7,14 @@ import {
   ChapterDossier,
   CompletedChapter,
   ActiveLessonBuild,
-  LessonStreamEvent
+  LessonStreamEvent,
+  extractQuotaWaitTime,
+  isQuotaError,
+  GeminiQuotaExceededError
 } from './types';
 import { saveActiveLessonBuild, fetchActiveLessonBuild } from './supabase';
+
+export { extractQuotaWaitTime, isQuotaError, GeminiQuotaExceededError };
 
 export async function scrapeConcertUrl(url: string): Promise<ScrapeResult> {
   let htmlText = '';
@@ -527,7 +532,18 @@ export async function generateSpeechSegment(
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `TTS call failed with status ${res.status}`);
+        const rawErrMsg = errJson.error?.message || `TTS call failed with status ${res.status}`;
+        const retryAfterHeader = res.headers.get('retry-after');
+
+        if (res.status === 429 || isQuotaError(res.status, rawErrMsg)) {
+          const waitTime = extractQuotaWaitTime(rawErrMsg) || (retryAfterHeader ? `${retryAfterHeader} seconds` : null);
+          const friendlyMsg = waitTime
+            ? `Gemini quota exceeded. Please retry in ${waitTime}.`
+            : `Gemini quota exceeded: ${rawErrMsg}`;
+          throw new GeminiQuotaExceededError(friendlyMsg, waitTime, rawErrMsg);
+        }
+
+        throw new Error(rawErrMsg);
       }
 
       const data = await res.json();
@@ -538,8 +554,12 @@ export async function generateSpeechSegment(
         const durationSeconds = Number((pcmBuffer.length / 48000).toFixed(2));
         return { wavBuffer, durationSeconds };
       }
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
+      if (err.isQuota || err.name === 'GeminiQuotaExceededError' || isQuotaError(err.message)) {
+        // Halt immediately on quota/rate limit error - fallback models share the same project quota
+        throw err;
+      }
       console.warn(`Failed TTS with model ${model}, trying fallback:`, err);
     }
   }

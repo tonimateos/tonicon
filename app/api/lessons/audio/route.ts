@@ -6,7 +6,7 @@ import {
   uploadLessonAudio
 } from '@/lib/supabase';
 import { generateSpeechSegment, hashText, sanitizeSpokenText } from '@/lib/gemini';
-import { AudioSegment, AudioStreamEvent } from '@/lib/types';
+import { AudioSegment, AudioStreamEvent, extractQuotaWaitTime, isQuotaError } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // Allow sufficient time for multi-paragraph speech generation
@@ -230,8 +230,22 @@ export async function POST(req: NextRequest) {
           const currentSegments = Array.from(completedMap.values()).sort((a, b) => a.segment_id - b.segment_id);
           await saveLessonAudioSegments(lessonId, currentSegments, 'paused').catch(() => {});
 
+          const isQuota = Boolean(streamErr.isQuota || streamErr.name === 'GeminiQuotaExceededError' || isQuotaError(streamErr.message));
+          const waitTime = streamErr.retryAfter || extractQuotaWaitTime(streamErr.message);
+
+          const errorMessage = isQuota
+            ? (waitTime ? `Gemini API quota exceeded. Please retry in ${waitTime}.` : `Gemini API quota exceeded.`)
+            : (streamErr.message || 'Audio conversion failed');
+
+          const errorPayload: AudioStreamEvent = {
+            type: 'error',
+            error: errorMessage,
+            isQuota,
+            retryAfter: waitTime || undefined
+          };
+
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: 'error', error: streamErr.message || 'Audio conversion failed' })}\n\n`)
+            encoder.encode(`data: ${JSON.stringify(errorPayload)}\n\n`)
           );
           controller.close();
         }
