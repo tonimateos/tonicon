@@ -147,4 +147,9 @@ ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'en';
 DROP POLICY IF EXISTS "Allow public update access to lessons" ON public.lessons;
 CREATE POLICY "Allow public update access to lessons" ON public.lessons FOR UPDATE USING (true) WITH CHECK (true);
 
+-- Allow delete access for lessons
+DROP POLICY IF EXISTS "Allow public delete access to lessons" ON public.lessons;
+CREATE POLICY "Allow public delete access to lessons" ON public.lessons FOR DELETE USING (true);
+
+
 

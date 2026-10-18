@@ -68,6 +68,8 @@ export default function LessonsPage() {
   const [loadingSaved, setLoadingSaved] = useState(true);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [lessonToDelete, setLessonToDelete] = useState<Lesson | null>(null);
+  const [isDeletingLesson, setIsDeletingLesson] = useState(false);
 
   // Add Lesson generation state & Language preference
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'es'>('en');
@@ -461,6 +463,44 @@ export default function LessonsPage() {
     }
   };
 
+  // Delete saved lesson from DB and clean up all audio files
+  const handleDeleteLesson = async () => {
+    if (!lessonToDelete) return;
+    if (!isAdmin || !adminPassword) {
+      setIsAdminModalOpen(true);
+      return;
+    }
+
+    setIsDeletingLesson(true);
+    try {
+      const res = await fetch('/api/lessons', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: lessonToDelete.id,
+          password: adminPassword
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete podcast.');
+      }
+
+      setSavedLessons((prev) => prev.filter((l) => l.id !== lessonToDelete.id));
+      if (selectedLesson?.id === lessonToDelete.id) {
+        setSelectedLesson(null);
+      }
+      showToast(`Podcast "${lessonToDelete.title}" and its audio files deleted.`);
+      setLessonToDelete(null);
+    } catch (err: any) {
+      console.error('Delete error:', err);
+      showToast(`Failed to delete podcast: ${err.message}`);
+    } finally {
+      setIsDeletingLesson(false);
+    }
+  };
+
   // Filter saved lessons
   const filteredLessons = savedLessons.filter((l) => {
     if (!searchQuery.trim()) return true;
@@ -566,13 +606,26 @@ export default function LessonsPage() {
           <div className="space-y-6">
             {selectedLesson ? (
               <div className="space-y-4">
-                <button
-                  onClick={() => setSelectedLesson(null)}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to Saved Lessons</span>
-                </button>
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setSelectedLesson(null)}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Saved Lessons</span>
+                  </button>
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setLessonToDelete(selectedLesson)}
+                      className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-700/60 text-xs font-semibold flex items-center gap-1.5 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Delete Podcast</span>
+                    </button>
+                  )}
+                </div>
 
                 <LessonPlayer
                   id={selectedLesson.id}
@@ -673,9 +726,26 @@ export default function LessonsPage() {
                             <Headphones className="w-3.5 h-3.5" />
                             Read & Listen
                           </span>
-                          <span className="text-xs font-semibold text-slate-400 group-hover:translate-x-1 transition transform">
-                            →
-                          </span>
+
+                          <div className="flex items-center gap-2">
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setLessonToDelete(lesson);
+                                }}
+                                className="px-2.5 py-1 rounded-xl bg-slate-950/80 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-700/60 text-[11px] font-semibold flex items-center gap-1.5 transition z-10"
+                                title="Delete podcast and speech audio files"
+                              >
+                                <Trash2 className="w-3 h-3 text-rose-400" />
+                                <span>Delete</span>
+                              </button>
+                            )}
+                            <span className="text-xs font-semibold text-slate-400 group-hover:translate-x-1 transition transform">
+                              →
+                            </span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1095,6 +1165,57 @@ export default function LessonsPage() {
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-lg shadow-rose-600/30"
               >
                 Discard & Start New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Saved Podcast Confirmation Modal */}
+      {lessonToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-rose-500/40 p-6 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">Delete Podcast Episode</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  Are you sure you want to permanently delete:
+                  <span className="block font-semibold text-white mt-1 italic">
+                    "{lessonToDelete.title}"
+                  </span>
+                </p>
+                <p className="text-xs text-rose-300/90 pt-1">
+                  This will remove the episode from the database and permanently delete all converted speech audio files associated with it.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                disabled={isDeletingLesson}
+                onClick={() => setLessonToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingLesson}
+                onClick={handleDeleteLesson}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-lg shadow-rose-600/30 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isDeletingLesson ? (
+                  <span>Deleting...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete Podcast</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

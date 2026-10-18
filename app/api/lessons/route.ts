@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllLessons, createLesson } from '@/lib/supabase';
+import { fetchAllLessons, createLesson, deleteLesson } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,3 +40,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Failed to create lesson' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, password } = body;
+
+    const expectedPassword = process.env.TONI_ADMIN_PASSWORD || 'tonipass';
+    if (!password || password.trim() !== expectedPassword.trim()) {
+      return NextResponse.json({ error: 'Unauthorized. Admin password required.' }, { status: 401 });
+    }
+
+    if (!id) {
+      return NextResponse.json({ error: 'Lesson ID is required for deletion.' }, { status: 400 });
+    }
+
+    await deleteLesson(id);
+
+    return NextResponse.json({ success: true, message: 'Podcast deleted successfully.' });
+  } catch (err: any) {
+    console.error('Failed to delete lesson:', err);
+    return NextResponse.json({ error: err.message || 'Failed to delete lesson' }, { status: 500 });
+  }
+}
+

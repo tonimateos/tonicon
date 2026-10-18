@@ -553,3 +553,64 @@ export async function saveLessonAudioSegments(
   }
 }
 
+export async function deleteLesson(lessonId: string): Promise<boolean> {
+  // 1. Delete all audio speech files from Supabase Storage 'lesson-audio' bucket
+  try {
+    const { data: files, error: listError } = await supabase.storage
+      .from('lesson-audio')
+      .list(lessonId);
+
+    if (!listError && files && files.length > 0) {
+      const pathsToDelete = files.map((f) => `${lessonId}/${f.name}`);
+      await supabase.storage.from('lesson-audio').remove(pathsToDelete);
+    }
+  } catch (err) {
+    console.warn('Error deleting audio files from Supabase Storage:', err);
+  }
+
+  // 2. Delete local audio directory public/audio/lessons/{lessonId}
+  try {
+    const localDir = path.join(process.cwd(), 'public', 'audio', 'lessons', lessonId);
+    if (fs.existsSync(localDir)) {
+      fs.rmSync(localDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    console.warn('Error deleting local audio files:', err);
+  }
+
+  // 3. Delete local audio metadata file
+  try {
+    const metaFile = path.join(LOCAL_AUDIO_METADATA_DIR, `${lessonId}.json`);
+    if (fs.existsSync(metaFile)) {
+      fs.unlinkSync(metaFile);
+    }
+  } catch (err) {
+    console.warn('Error deleting local audio metadata file:', err);
+  }
+
+  // 4. Delete from Supabase 'lessons' table
+  try {
+    const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
+    if (error) {
+      console.warn('Error deleting lesson from Supabase table:', error.message);
+    }
+  } catch (err) {
+    console.warn('Exception deleting lesson from Supabase:', err);
+  }
+
+  // 5. Delete from local lessons.json fallback file
+  try {
+    if (fs.existsSync(LOCAL_LESSONS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_LESSONS_FILE, 'utf-8');
+      const current: Lesson[] = JSON.parse(raw);
+      const filtered = current.filter((l) => l.id !== lessonId);
+      fs.writeFileSync(LOCAL_LESSONS_FILE, JSON.stringify(filtered, null, 2), 'utf-8');
+    }
+  } catch (err) {
+    console.warn('Error deleting lesson from local lessons.json:', err);
+  }
+
+  return true;
+}
+
+
