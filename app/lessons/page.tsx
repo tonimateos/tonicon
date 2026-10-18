@@ -77,6 +77,7 @@ export default function LessonsPage() {
 
   // Active ready draft (for LessonPlayer)
   const [currentDraft, setCurrentDraft] = useState<{
+    id?: string;
     title: string;
     content: string;
     topicPrompt: string;
@@ -426,6 +427,7 @@ export default function LessonsPage() {
 
       setCurrentDraft({
         ...currentDraft,
+        id: data.lesson?.id || data.id,
         isSaved: true
       });
 
@@ -558,11 +560,16 @@ export default function LessonsPage() {
                 </button>
 
                 <LessonPlayer
+                  id={selectedLesson.id}
+                  lessonId={selectedLesson.id}
                   title={selectedLesson.title}
                   content={selectedLesson.content}
                   topicPrompt={selectedLesson.topic_prompt}
                   readOnly
                   isAdmin={isAdmin}
+                  adminPassword={adminPassword}
+                  initialAudioSegments={selectedLesson.audio_segments}
+                  initialAudioStatus={selectedLesson.audio_status}
                 />
               </div>
             ) : (
@@ -821,6 +828,8 @@ export default function LessonsPage() {
                 </div>
 
                 <LessonPlayer
+                  id={currentDraft.id}
+                  lessonId={currentDraft.id}
                   title={currentDraft.title}
                   content={currentDraft.content}
                   topicPrompt={currentDraft.topicPrompt}
@@ -830,6 +839,7 @@ export default function LessonsPage() {
                   onSuggestChanges={handleSuggestChanges}
                   isRefining={isRefiningDraft}
                   isAdmin={isAdmin}
+                  adminPassword={adminPassword}
                 />
               </div>
             ) : activeBuild && activeBuild.status !== 'completed' && activeBuild.outline_json ? (

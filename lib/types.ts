@@ -67,13 +67,26 @@ export interface DiscoverCrawledSublink {
   crawled_at: string;
 }
 
+export interface AudioSegment {
+  segment_id: number;
+  type: 'heading' | 'paragraph';
+  text_hash: string;
+  audio_url: string;
+  duration_seconds?: number;
+  created_at: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
   topic_prompt: string;
   content: string;
   created_at: string;
+  audio_status?: 'none' | 'in_progress' | 'paused' | 'ready';
+  audio_voice?: string;
+  audio_segments?: AudioSegment[];
 }
+
 
 export interface ChapterDossier {
   chapter_number: number;
@@ -122,5 +135,12 @@ export type LessonStreamEvent =
   | { type: 'chapter'; chapterIndex: number; chapter: CompletedChapter; accumulatedContent: string }
   | { type: 'complete'; lesson: { title: string; content: string; totalWords: number } }
   | { type: 'error'; error: string };
+
+export type AudioStreamEvent =
+  | { type: 'status'; message: string; completedCount: number; totalCount: number }
+  | { type: 'segment_ready'; segment: AudioSegment; completedCount: number; totalCount: number }
+  | { type: 'complete'; lessonId: string; totalSegments: number; audioSegments: AudioSegment[] }
+  | { type: 'error'; error: string };
+
 
 

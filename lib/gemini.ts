@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
+import crypto from 'crypto';
 import {
   ScrapeResult,
   LessonOutline,
@@ -423,3 +424,126 @@ Adhere strictly to the spoken text rules:
 
   return { title, content: text };
 }
+
+export function pcmToWav(
+  pcmBuffer: Buffer,
+  sampleRate: number = 24000,
+  numChannels: number = 1,
+  bitsPerSample: number = 16
+): Buffer {
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const wavHeader = Buffer.alloc(44);
+
+  wavHeader.write('RIFF', 0);
+  wavHeader.writeUInt32LE(36 + pcmBuffer.length, 4);
+  wavHeader.write('WAVE', 8);
+  wavHeader.write('fmt ', 12);
+  wavHeader.writeUInt32LE(16, 16);
+  wavHeader.writeUInt16LE(1, 20); // 1 = PCM
+  wavHeader.writeUInt16LE(numChannels, 22);
+  wavHeader.writeUInt32LE(sampleRate, 24);
+  wavHeader.writeUInt32LE(byteRate, 28);
+  wavHeader.writeUInt16LE(blockAlign, 32);
+  wavHeader.writeUInt16LE(bitsPerSample, 34);
+  wavHeader.write('data', 36);
+  wavHeader.writeUInt32LE(pcmBuffer.length, 40);
+
+  return Buffer.concat([wavHeader, pcmBuffer]);
+}
+
+export function hashText(text: string): string {
+  return crypto.createHash('sha256').update(text.trim()).digest('hex').slice(0, 12);
+}
+
+export function sanitizeSpokenText(text: string): string {
+  return text
+    // Remove markdown song links like [Play "Song" by Artist on YouTube](...)
+    .replace(/\[(?:Play\s+)?(.*?)(?:\s+on\s+YouTube)?\]\(.*?\)/gi, '$1')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    // Remove sound cues
+    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence)[^\]]*\]/gi, '')
+    .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
+    // Remove speaker labels
+    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter)(?:\*\*|\*|\])?:\s*/gi, '')
+    // Remove raw URLs
+    .replace(/https?:\/\/\S+/g, '')
+    // Remove markdown formatting tokens
+    .replace(/[*_~`#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export async function generateSpeechSegment(
+  rawText: string,
+  voiceName: string = 'Puck'
+): Promise<{ wavBuffer: Buffer; durationSeconds: number }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in .env.local');
+  }
+
+  const cleanText = sanitizeSpokenText(rawText);
+  if (!cleanText || cleanText.length < 2) {
+    const silentPcm = Buffer.alloc(2400); // 0.05s silence
+    return { wavBuffer: pcmToWav(silentPcm), durationSeconds: 0.1 };
+  }
+
+  const modelsToTry = [
+    'gemini-2.5-flash-preview-tts',
+    'gemini-3.8-flash-tts',
+    'gemini-3.1-flash-tts-preview'
+  ];
+
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const payload = {
+        contents: [
+          {
+            parts: [{ text: cleanText }]
+          }
+        ],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: voiceName || 'Puck'
+              }
+            }
+          }
+        }
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `TTS call failed with status ${res.status}`);
+      }
+
+      const data = await res.json();
+      const part = data.candidates?.[0]?.content?.parts?.[0];
+      if (part?.inlineData?.data) {
+        const pcmBuffer = Buffer.from(part.inlineData.data, 'base64');
+        const wavBuffer = pcmToWav(pcmBuffer, 24000, 1, 16);
+        const durationSeconds = Number((pcmBuffer.length / 48000).toFixed(2));
+        return { wavBuffer, durationSeconds };
+      }
+    } catch (err) {
+      lastError = err;
+      console.warn(`Failed TTS with model ${model}, trying fallback:`, err);
+    }
+  }
+
+  throw new Error(`All Gemini TTS models failed: ${lastError?.message || 'Unknown error'}`);
+}
+

@@ -22,10 +22,17 @@ import {
   SkipForward,
   SkipBack,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Mic,
+  RotateCcw,
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
+import { AudioSegment, AudioStreamEvent } from '@/lib/types';
 
 interface LessonPlayerProps {
+  id?: string;
+  lessonId?: string;
   title: string;
   content: string;
   topicPrompt?: string;
@@ -36,6 +43,9 @@ interface LessonPlayerProps {
   isRefining?: boolean;
   isAdmin?: boolean;
   readOnly?: boolean;
+  adminPassword?: string;
+  initialAudioSegments?: AudioSegment[];
+  initialAudioStatus?: 'none' | 'in_progress' | 'paused' | 'ready';
 }
 
 interface Segment {
@@ -91,6 +101,8 @@ function getEmbedUrl(youtubeUrl: string): string {
 }
 
 export function LessonPlayer({
+  id,
+  lessonId,
   title,
   content,
   topicPrompt,
@@ -100,8 +112,25 @@ export function LessonPlayer({
   onSuggestChanges,
   isRefining,
   isAdmin = false,
-  readOnly = false
+  readOnly = false,
+  adminPassword,
+  initialAudioSegments,
+  initialAudioStatus
 }: LessonPlayerProps) {
+  const effectiveLessonId = lessonId || id;
+
+  // Studio Audio State (Lesson v3)
+  const [audioSegments, setAudioSegments] = useState<AudioSegment[]>(initialAudioSegments || []);
+  const [audioStatus, setAudioStatus] = useState<'none' | 'in_progress' | 'paused' | 'ready'>(initialAudioStatus || 'none');
+  const [audioMode, setAudioMode] = useState<'studio' | 'browser'>('browser');
+  const [isConvertingAudio, setIsConvertingAudio] = useState(false);
+  const [audioStatusMessage, setAudioStatusMessage] = useState<string | null>(null);
+  const [conversionProgress, setConversionProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 });
+
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const nextAudioRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // TTS State
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -126,6 +155,26 @@ export function LessonPlayer({
   // Ref to hold current speech utterance
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const segmentsRef = useRef<Segment[]>([]);
+
+  // Fetch existing audio segments if lesson is saved
+  useEffect(() => {
+    if (!effectiveLessonId) return;
+
+    fetch(`/api/lessons/audio?lessonId=${effectiveLessonId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          if (Array.isArray(data.audio_segments) && data.audio_segments.length > 0) {
+            setAudioSegments(data.audio_segments);
+            setAudioMode('studio');
+          }
+          if (data.audio_status) {
+            setAudioStatus(data.audio_status);
+          }
+        }
+      })
+      .catch((err) => console.warn('Could not load audio segments:', err));
+  }, [effectiveLessonId]);
 
   // 1. Initialize voices
   useEffect(() => {
@@ -272,17 +321,127 @@ export function LessonPlayer({
     }
   };
 
-  // Clean text and speak from a given segment index
-  const startSpeechFromSegment = (startIndex: number) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      alert('Speech synthesis is not supported on this device/browser.');
-      return;
-    }
+  // Spoken segments count (excluding songs)
+  const spokenSegmentsCount = useMemo(() => {
+    return segments.filter((s) => s.type === 'paragraph' || s.type === 'heading').length;
+  }, [segments]);
 
+  // Audio Conversion Controls (Lesson v3)
+  const handleStartAudioConversion = async (isResume = false) => {
+    if (!effectiveLessonId) return;
+    setIsConvertingAudio(true);
+    setAudioStatusMessage(isResume ? 'Resuming studio voice conversion...' : 'Starting studio voice conversion...');
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    try {
+      const res = await fetch('/api/lessons/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessonId: effectiveLessonId,
+          action: isResume ? 'resume' : 'render',
+          password: adminPassword || (typeof window !== 'undefined' ? localStorage.getItem('tonicon_admin_password') : null) || 'godzilla'
+        }),
+        signal: abortController.signal
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Audio conversion failed.');
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No audio event stream received.');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const event: AudioStreamEvent = JSON.parse(trimmed.slice(6));
+              if (event.type === 'status') {
+                setAudioStatusMessage(event.message);
+                setConversionProgress({ completed: event.completedCount, total: event.totalCount });
+              } else if (event.type === 'segment_ready') {
+                setAudioSegments((prev) => {
+                  const filtered = prev.filter((s) => s.segment_id !== event.segment.segment_id);
+                  return [...filtered, event.segment].sort((a, b) => a.segment_id - b.segment_id);
+                });
+                setConversionProgress({ completed: event.completedCount, total: event.totalCount });
+              } else if (event.type === 'complete') {
+                setAudioStatus('ready');
+                setAudioSegments(event.audioSegments);
+                setAudioMode('studio');
+                setAudioStatusMessage(null);
+              } else if (event.type === 'error') {
+                throw new Error(event.error);
+              }
+            } catch (pErr) {
+              console.warn('Failed to parse audio event:', pErr);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setAudioStatus('paused');
+      } else {
+        console.error('Audio conversion error:', err);
+        alert(`Voice conversion paused: ${err.message}`);
+        setAudioStatus('paused');
+      }
+    } finally {
+      setIsConvertingAudio(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handlePauseAudioConversion = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsConvertingAudio(false);
+    setAudioStatus('paused');
+    if (effectiveLessonId) {
+      await fetch('/api/lessons/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lessonId: effectiveLessonId,
+          action: 'pause',
+          password: adminPassword || (typeof window !== 'undefined' ? localStorage.getItem('tonicon_admin_password') : null) || 'godzilla'
+        })
+      }).catch(() => {});
+    }
+  };
+
+  // Clean text and speak from a given segment index (Dual Buffer: Studio Audio + Browser Fallback)
+  const startSpeechFromSegment = (startIndex: number) => {
     // Stop any active YouTube playing embed
     setActiveEmbedSegmentId(null);
 
-    window.speechSynthesis.cancel();
+    // Cancel browser TTS
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    // Stop HTML5 audio element
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
 
     const remainingSegments = segments.slice(startIndex);
     if (remainingSegments.length === 0) return;
@@ -304,17 +463,69 @@ export function LessonPlayer({
       const segment = segments[currentIdx];
       setActiveSegmentIndex(currentIdx);
 
-      // If next item is a song, pause speech so the user can play the song
+      // If next item is a song, pause speech so user can play the song
       if (segment.type === 'inline_song') {
         currentIdx++;
         playNext();
         return;
       }
 
+      // Check if studio audio is available and active
+      const studioClip = audioSegments.find((a) => a.segment_id === segment.id);
+
+      if (audioMode === 'studio' && studioClip?.audio_url) {
+        const audio = new Audio(studioClip.audio_url);
+        currentAudioRef.current = audio;
+        audio.playbackRate = speechRate;
+
+        // Preload next audio clip
+        const nextSegment = segments[currentIdx + 1];
+        if (nextSegment) {
+          const nextClip = audioSegments.find((a) => a.segment_id === nextSegment.id);
+          if (nextClip?.audio_url) {
+            const preloader = new Audio(nextClip.audio_url);
+            preloader.preload = 'auto';
+            nextAudioRef.current = preloader;
+          }
+        }
+
+        audio.onended = () => {
+          setTimeout(() => {
+            currentIdx++;
+            playNext();
+          }, 350);
+        };
+
+        audio.onerror = (e) => {
+          console.warn('Studio audio playback error, falling back to browser speech:', e);
+          fallbackToBrowserSpeech(segment, () => {
+            currentIdx++;
+            playNext();
+          });
+        };
+
+        audio.play().catch((playErr) => {
+          console.warn('Audio play prevented:', playErr);
+          setIsPlaying(false);
+          setIsPaused(false);
+        });
+      } else {
+        fallbackToBrowserSpeech(segment, () => {
+          currentIdx++;
+          playNext();
+        });
+      }
+    };
+
+    const fallbackToBrowserSpeech = (segment: Segment, onComplete: () => void) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        onComplete();
+        return;
+      }
+
       const textToSpeak = segment.rawSpeechText;
       if (!textToSpeak || textToSpeak.length < 2) {
-        currentIdx++;
-        playNext();
+        onComplete();
         return;
       }
 
@@ -328,8 +539,7 @@ export function LessonPlayer({
       }
 
       utterance.onend = () => {
-        currentIdx++;
-        playNext();
+        onComplete();
       };
 
       utterance.onerror = (e) => {
@@ -346,35 +556,41 @@ export function LessonPlayer({
   };
 
   const handlePauseTTS = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.pause();
-      setIsPaused(true);
     }
+    setIsPaused(true);
   };
 
   const handleResumeTTS = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.play();
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.resume();
-      setIsPaused(false);
     }
+    setIsPaused(false);
   };
 
   const handleStopTTS = () => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      setIsPaused(false);
-      setActiveSegmentIndex(null);
     }
+    setIsPlaying(false);
+    setIsPaused(false);
+    setActiveSegmentIndex(null);
   };
 
   const handlePlayInlineSong = async (seg: Segment, forceClickMode?: boolean) => {
-    // Release speech synthesis session completely so browser/macOS does not duck audio
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      setIsPaused(false);
-    }
+    // Release speech synthesis and studio audio immediately
+    handleStopTTS();
 
     // In Brave, cross-origin iframes with autoplay=1 are strictly muted unless clicked directly.
     // Defaulting to click-to-play in Brave lets the user click the video directly, granting full unmuted audio.
@@ -590,6 +806,149 @@ export function LessonPlayer({
           </div>
         </div>
       </div>
+
+      {/* Studio Voice Conversion Banner (Enabled ONLY on Saved Lessons for Admin) */}
+      {(isSaved || readOnly) && effectiveLessonId && isAdmin && (
+        <div className="space-y-3">
+          {isConvertingAudio ? (
+            /* State: In Progress */
+            <div className="p-4 sm:p-5 rounded-3xl bg-indigo-950/80 border border-pink-500/50 shadow-xl space-y-3 animate-fade-in backdrop-blur-md">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-pink-400 animate-spin" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Generating Studio Voice with Gemini...
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePauseAudioConversion}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-700 transition"
+                >
+                  Pause
+                </button>
+              </div>
+
+              <div className="w-full bg-slate-950 rounded-full h-2 border border-slate-800 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-pink-500 to-indigo-500 h-full transition-all duration-300"
+                  style={{
+                    width: `${Math.round(
+                      (audioSegments.length / Math.max(1, spokenSegmentsCount)) * 100
+                    )}%`
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span className="truncate">{audioStatusMessage || 'Converting paragraphs to broadcast audio...'}</span>
+                <span className="font-semibold text-pink-300 shrink-0">
+                  {audioSegments.length} of {spokenSegmentsCount} paragraphs ({Math.round(
+                    (audioSegments.length / Math.max(1, spokenSegmentsCount)) * 100
+                  )}%)
+                </span>
+              </div>
+            </div>
+          ) : audioSegments.length >= spokenSegmentsCount && spokenSegmentsCount > 0 ? (
+            /* State: Completed / Ready */
+            <div className="p-4 rounded-3xl bg-gradient-to-r from-emerald-950/60 via-slate-900 to-indigo-950/60 border border-emerald-500/40 shadow-lg flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center border border-emerald-500/30">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-white">Broadcast Studio Voice Ready</span>
+                    <span className="text-[10px] text-emerald-300 font-semibold bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-800/60">
+                      {audioSegments.length}/{spokenSegmentsCount} Cached
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">High-fidelity narration cached in Supabase ($0 streaming)</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-2xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAudioMode('studio')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+                    audioMode === 'studio'
+                      ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>Studio Voice</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAudioMode('browser')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${
+                    audioMode === 'browser'
+                      ? 'bg-slate-800 text-white shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Browser Voice
+                </button>
+              </div>
+            </div>
+          ) : audioSegments.length > 0 ? (
+            /* State: Paused / Partial */
+            <div className="p-4 rounded-3xl bg-amber-950/40 border border-amber-500/40 shadow-lg flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/30">
+                  <RotateCcw className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-amber-200">Voice Conversion Paused</span>
+                    <span className="text-[10px] text-amber-300 font-semibold bg-amber-950 px-2 py-0.5 rounded-full border border-amber-800/60">
+                      {audioSegments.length} of {spokenSegmentsCount} Ready
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">Saved permanently. Resume anytime without re-converting.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleStartAudioConversion(true)}
+                  className="px-4 py-2 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold flex items-center gap-1.5 transition shadow-md shadow-amber-600/30"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Resume Conversion</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* State: Never Converted */
+            <div className="p-4 rounded-3xl bg-slate-900/90 border border-indigo-500/30 shadow-lg flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-pink-500/20 text-pink-300 flex items-center justify-center border border-pink-500/30">
+                  <Mic className="w-4 h-4 text-pink-400" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-white">Broadcast Studio Voice Available</span>
+                  <p className="text-[11px] text-slate-400">
+                    Convert paragraphs into human-like speech. Cached permanently in Supabase.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleStartAudioConversion(false)}
+                className="px-4 py-2 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-2 transition shadow-lg shadow-pink-600/25"
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>Convert to Studio Voice</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Suggest Changes Interactive Drawer */}
       {isSuggestOpen && !readOnly && isAdmin && (
@@ -841,7 +1200,15 @@ export function LessonPlayer({
                   <span className="hidden sm:inline">Resume from here</span>
                 </button>
 
-                <p className="flex-1 whitespace-pre-wrap">{seg.text}</p>
+                <div className="flex-1 space-y-1">
+                  {audioSegments.some((a) => a.segment_id === seg.id) && audioMode === 'studio' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-pink-300 bg-pink-950/60 border border-pink-800/50 px-2 py-0.5 rounded-full mb-1">
+                      <Mic className="w-2.5 h-2.5 text-pink-400" />
+                      <span>Studio Audio</span>
+                    </span>
+                  )}
+                  <p className="whitespace-pre-wrap">{seg.text}</p>
+                </div>
               </div>
             </div>
           );
@@ -853,14 +1220,23 @@ export function LessonPlayer({
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-2xl bg-slate-900/95 border border-pink-500/40 rounded-3xl p-3 sm:p-4 shadow-2xl backdrop-blur-xl flex items-center justify-between gap-4 animate-slide-up">
           <div className="flex items-center gap-3 overflow-hidden">
             <div className="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 flex items-center justify-center text-pink-400 shrink-0">
-              <Headphones className="w-5 h-5 animate-bounce" />
+              {audioMode === 'studio' ? (
+                <Mic className="w-5 h-5 text-pink-400 animate-pulse" />
+              ) : (
+                <Headphones className="w-5 h-5 animate-bounce" />
+              )}
             </div>
             <div className="overflow-hidden">
               <p className="text-xs font-semibold text-white truncate">
                 {title}
               </p>
-              <p className="text-[11px] text-pink-300 truncate">
-                {isPaused ? 'Paused (Ready to resume)' : 'Playing podcast narration...'}
+              <p className="text-[11px] text-pink-300 truncate flex items-center gap-1.5">
+                <span>{isPaused ? 'Paused (Ready to resume)' : 'Playing podcast narration...'}</span>
+                {audioMode === 'studio' && (
+                  <span className="text-[9px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                    Studio Voice
+                  </span>
+                )}
               </p>
             </div>
           </div>

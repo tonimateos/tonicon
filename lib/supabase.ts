@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Concert, Activity, ActionType, Lesson, ActiveLessonBuild } from './types';
+import { Concert, Activity, ActionType, Lesson, ActiveLessonBuild, AudioSegment } from './types';
 import fs from 'fs';
 import path from 'path';
 
@@ -350,3 +350,155 @@ export async function clearActiveLessonBuild(): Promise<void> {
   }
   saveLocalActiveBuild(null);
 }
+
+// -------------------------------------------------------------
+// Lesson v3: Audio Segments & Supabase Storage Persistence
+// -------------------------------------------------------------
+const LOCAL_AUDIO_METADATA_DIR = path.join(process.cwd(), 'data', 'audio_meta');
+
+function getLocalAudioMeta(lessonId: string): { audio_status: string; audio_voice: string; audio_segments: AudioSegment[] } {
+  try {
+    const metaFile = path.join(LOCAL_AUDIO_METADATA_DIR, `${lessonId}.json`);
+    if (fs.existsSync(metaFile)) {
+      return JSON.parse(fs.readFileSync(metaFile, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('Error reading local audio meta:', e);
+  }
+  return { audio_status: 'none', audio_voice: 'default', audio_segments: [] };
+}
+
+function saveLocalAudioMeta(lessonId: string, data: { audio_status: string; audio_voice: string; audio_segments: AudioSegment[] }) {
+  try {
+    if (!fs.existsSync(LOCAL_AUDIO_METADATA_DIR)) {
+      fs.mkdirSync(LOCAL_AUDIO_METADATA_DIR, { recursive: true });
+    }
+    const metaFile = path.join(LOCAL_AUDIO_METADATA_DIR, `${lessonId}.json`);
+    fs.writeFileSync(metaFile, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving local audio meta:', e);
+  }
+}
+
+export async function uploadLessonAudio(
+  lessonId: string,
+  segmentId: number,
+  textHash: string,
+  wavBuffer: Buffer
+): Promise<string> {
+  const filePath = `${lessonId}/segment_${segmentId}_${textHash}.wav`;
+
+  try {
+    const { data, error } = await supabase.storage
+      .from('lesson-audio')
+      .upload(filePath, wavBuffer, {
+        contentType: 'audio/wav',
+        upsert: true
+      });
+
+    if (!error && data) {
+      const { data: publicUrlData } = supabase.storage
+        .from('lesson-audio')
+        .getPublicUrl(filePath);
+      return publicUrlData.publicUrl;
+    }
+
+    if (error) {
+      console.warn('Supabase storage upload error, saving to local public folder:', error);
+    }
+  } catch (err) {
+    console.warn('Storage exception, saving locally:', err);
+  }
+
+  // Local fallback: save to public/audio/lessons/{lessonId}/...
+  try {
+    const localDir = path.join(process.cwd(), 'public', 'audio', 'lessons', lessonId);
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    const localFile = path.join(localDir, `segment_${segmentId}_${textHash}.wav`);
+    fs.writeFileSync(localFile, wavBuffer);
+    return `/audio/lessons/${lessonId}/segment_${segmentId}_${textHash}.wav`;
+  } catch (localErr) {
+    console.error('Error saving audio locally:', localErr);
+    // Base64 data URI fallback as last resort
+    return `data:audio/wav;base64,${wavBuffer.toString('base64')}`;
+  }
+}
+
+export async function fetchLessonById(lessonId: string): Promise<Lesson | null> {
+  try {
+    const { data, error } = await supabase
+      .from('lessons')
+      .select('*')
+      .eq('id', lessonId)
+      .maybeSingle();
+
+    if (!error && data) {
+      return data;
+    }
+  } catch (err) {
+    console.warn('Error fetching lesson by ID from Supabase:', err);
+  }
+
+  const local = getLocalLessons().find((l) => l.id === lessonId);
+  return local || null;
+}
+
+export async function fetchLessonAudioSegments(lessonId: string): Promise<{
+  audio_status: string;
+  audio_voice: string;
+  audio_segments: AudioSegment[];
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('lessons')
+      .select('audio_status, audio_voice, audio_segments')
+      .eq('id', lessonId)
+      .maybeSingle();
+
+    if (!error && data) {
+      return {
+        audio_status: data.audio_status || 'none',
+        audio_voice: data.audio_voice || 'default',
+        audio_segments: Array.isArray(data.audio_segments) ? data.audio_segments : []
+      };
+    }
+  } catch (err) {
+    console.warn('Error fetching audio segments from Supabase, checking local:', err);
+  }
+
+  return getLocalAudioMeta(lessonId);
+}
+
+export async function saveLessonAudioSegments(
+  lessonId: string,
+  segments: AudioSegment[],
+  status: 'none' | 'in_progress' | 'paused' | 'ready'
+): Promise<void> {
+  const meta = {
+    audio_status: status,
+    audio_voice: 'Puck',
+    audio_segments: segments
+  };
+
+  saveLocalAudioMeta(lessonId, meta);
+
+  try {
+    const { error } = await supabase
+      .from('lessons')
+      .update({
+        audio_status: status,
+        audio_segments: segments,
+        audio_voice: 'Puck'
+      })
+      .eq('id', lessonId);
+
+    if (error) {
+      console.warn('Could not update audio columns in Supabase (may need SQL migration), stored in local fallback:', error.message);
+    }
+  } catch (err) {
+    console.warn('Error updating lesson audio in Supabase:', err);
+  }
+}
+

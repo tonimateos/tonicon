@@ -129,3 +129,14 @@ CREATE TABLE IF NOT EXISTS public.active_lesson_build (
 
 ALTER TABLE public.active_lesson_build ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public all access to active_lesson_build" ON public.active_lesson_build FOR ALL USING (true) WITH CHECK (true);
+
+-- 9. Lesson v3: Paragraph-Level Studio Audio Columns
+ALTER TABLE public.lessons 
+ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'none',
+ADD COLUMN IF NOT EXISTS audio_voice TEXT DEFAULT 'default',
+ADD COLUMN IF NOT EXISTS audio_segments JSONB DEFAULT '[]'::jsonb;
+
+-- Allow update access for lessons audio rendering
+DROP POLICY IF EXISTS "Allow public update access to lessons" ON public.lessons;
+CREATE POLICY "Allow public update access to lessons" ON public.lessons FOR UPDATE USING (true) WITH CHECK (true);
+
