@@ -146,13 +146,23 @@ export function LessonPlayer({
         targetLang === 'es'
           ? voices.find(
             (v) =>
-              v.lang.startsWith('es') &&
-              (v.name.includes('Natural') ||
-                v.name.includes('Google') ||
-                v.name.includes('Jorge') ||
+              (v.lang === 'es-ES' || v.lang === 'es_ES') &&
+              (v.name.includes('Jorge') ||
                 v.name.includes('Mónica') ||
                 v.name.includes('Monica') ||
-                v.name.includes('Paulina'))
+                v.name.includes('Natural') ||
+                v.name.includes('Google') ||
+                v.name.includes('Spain') ||
+                v.name.includes('España'))
+          ) ||
+          voices.find((v) => v.lang === 'es-ES' || v.lang === 'es_ES') ||
+          voices.find((v) => v.name.includes('Spain') || v.name.includes('España')) ||
+          voices.find(
+            (v) =>
+              v.lang.startsWith('es') &&
+              !v.name.includes('Paulina') &&
+              !v.name.includes('Mexico') &&
+              !v.name.includes('Diego')
           ) ||
           voices.find((v) => v.lang.startsWith('es')) ||
           voices[0]

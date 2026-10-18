@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
             });
 
             // 1. Generate speech via Gemini TTS
-            const { wavBuffer, durationSeconds } = await generateSpeechSegment(seg.text, voiceName);
+            const { wavBuffer, durationSeconds } = await generateSpeechSegment(seg.text, voiceName, lesson.language);
 
             // 2. Upload to Supabase Storage (with local fallback)
             const audioUrl = await uploadLessonAudio(lessonId, seg.id, textHash, wavBuffer);

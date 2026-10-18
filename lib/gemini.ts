@@ -789,7 +789,8 @@ export function sanitizeSpokenText(text: string): string {
 
 export async function generateSpeechSegment(
   rawText: string,
-  voiceName: string = 'Puck'
+  voiceName: string = 'Puck',
+  language?: 'en' | 'es'
 ): Promise<{ wavBuffer: Buffer; durationSeconds: number }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -801,6 +802,12 @@ export async function generateSpeechSegment(
     const silentPcm = Buffer.alloc(2400); // 0.05s silence
     return { wavBuffer: pcmToWav(silentPcm), durationSeconds: 0.1 };
   }
+
+  // Detect Spanish either from parameter or text vocabulary to ensure Spanish from Spain accent (es-ES)
+  const isSpanish =
+    language === 'es' ||
+    /\b(el|la|los|las|de|en|un|una|por|para|con|este|esta|canción|música|del|al|fue|eran|había|años|canciones)\b/i.test(cleanText);
+  const languageCode = isSpanish ? 'es-ES' : 'en-US';
 
   const modelsToTry = [
     'gemini-2.5-flash-preview-tts',
@@ -826,7 +833,8 @@ export async function generateSpeechSegment(
               prebuiltVoiceConfig: {
                 voiceName: voiceName || 'Puck'
               }
-            }
+            },
+            languageCode: languageCode
           }
         }
       };
