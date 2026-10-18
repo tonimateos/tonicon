@@ -15,7 +15,6 @@ import {
   Radio,
   Music,
   Send,
-  Search,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
@@ -67,7 +66,6 @@ export default function LessonsPage() {
   const [savedLessons, setSavedLessons] = useState<Lesson[]>([]);
   const [loadingSaved, setLoadingSaved] = useState(true);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [lessonToDelete, setLessonToDelete] = useState<Lesson | null>(null);
   const [isDeletingLesson, setIsDeletingLesson] = useState(false);
 
@@ -501,12 +499,6 @@ export default function LessonsPage() {
     }
   };
 
-  // Filter saved lessons
-  const filteredLessons = savedLessons.filter((l) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return l.title.toLowerCase().includes(q) || l.topic_prompt.toLowerCase().includes(q);
-  });
 
   return (
     <main className="min-h-screen pb-20 bg-slate-950 text-slate-100">
@@ -643,31 +635,17 @@ export default function LessonsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Search Bar */}
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search saved lessons by title or keyword..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-800 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner"
-                  />
-                </div>
-
                 {loadingSaved ? (
                   <div className="py-16 text-center text-slate-500 text-xs animate-pulse">
-                    Loading music lessons...
+                    Loading saved podcasts...
                   </div>
-                ) : filteredLessons.length === 0 ? (
+                ) : savedLessons.length === 0 ? (
                   <div className="py-16 text-center rounded-3xl bg-slate-900/40 border border-slate-800/80 p-8 space-y-3">
                     <Headphones className="w-10 h-10 text-slate-600 mx-auto" />
                     <div className="space-y-1">
-                      <p className="text-sm font-semibold text-white">No Lessons Found</p>
+                      <p className="text-sm font-semibold text-white">No Podcasts Saved Yet</p>
                       <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                        {searchQuery
-                          ? 'No lessons matched your search query.'
-                          : 'No lessons have been saved yet. Switch to "Music Podcasts" to generate your first long-form lesson!'}
+                        No podcasts have been saved yet. Switch to "Create Podcast" to generate your first episode!
                       </p>
                     </div>
                     {isAdmin && (
@@ -682,7 +660,7 @@ export default function LessonsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {filteredLessons.map((lesson) => (
+                    {savedLessons.map((lesson) => (
                       <div
                         key={lesson.id}
                         onClick={() => setSelectedLesson(lesson)}
