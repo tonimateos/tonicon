@@ -75,4 +75,52 @@ export interface Lesson {
   created_at: string;
 }
 
+export interface ChapterDossier {
+  chapter_number: number;
+  title: string;
+  historical_context_reasons: string;
+  artist_spotlight: string;
+  musical_theory_focus: string;
+  featured_song: {
+    title: string;
+    artist: string;
+    year?: string;
+    narrative_context?: string;
+  };
+  key_talking_points: string[];
+}
+
+export interface LessonOutline {
+  title: string;
+  intro: string;
+  chapters: ChapterDossier[];
+  conclusion: string;
+}
+
+export interface CompletedChapter {
+  chapter_number: number;
+  title: string;
+  text: string;
+  wordCount: number;
+}
+
+export interface ActiveLessonBuild {
+  id: string;
+  topic_prompt: string;
+  title: string | null;
+  outline_json: LessonOutline | null;
+  chapters_json: CompletedChapter[];
+  content: string;
+  status: 'planning' | 'in_progress' | 'completed' | 'paused' | 'error';
+  current_step?: string | null;
+  updated_at: string;
+}
+
+export type LessonStreamEvent =
+  | { type: 'status'; message: string; step?: string }
+  | { type: 'outline'; data: LessonOutline }
+  | { type: 'chapter'; chapterIndex: number; chapter: CompletedChapter; accumulatedContent: string }
+  | { type: 'complete'; lesson: { title: string; content: string; totalWords: number } }
+  | { type: 'error'; error: string };
+
 

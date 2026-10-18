@@ -15,7 +15,14 @@ import {
   Sparkles,
   X,
   Volume2,
-  VolumeX
+  VolumeX,
+  Clock,
+  FileText,
+  List,
+  SkipForward,
+  SkipBack,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface LessonPlayerProps {
@@ -112,6 +119,9 @@ export function LessonPlayer({
   // Suggest Changes State
   const [isSuggestOpen, setIsSuggestOpen] = useState(false);
   const [userSuggestion, setUserSuggestion] = useState('');
+
+  // Table of Contents State
+  const [isTocOpen, setIsTocOpen] = useState(false);
 
   // Ref to hold current speech utterance
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -215,6 +225,52 @@ export function LessonPlayer({
     segmentsRef.current = result;
     return result;
   }, [content]);
+
+  // Episode metadata statistics
+  const stats = useMemo(() => {
+    const totalWords = content.split(/\s+/).filter(Boolean).length;
+    const estMinutes = Math.max(1, Math.ceil(totalWords / 150));
+    const chapterCount = segments.filter((s) => s.type === 'heading').length;
+    const songCount = segments.filter((s) => s.type === 'inline_song').length;
+    return { totalWords, estMinutes, chapterCount, songCount };
+  }, [content, segments]);
+
+  // Auto-scroll to currently spoken paragraph during TTS
+  useEffect(() => {
+    if (isPlaying && activeSegmentIndex !== null) {
+      const el = document.getElementById(`segment-${activeSegmentIndex}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [isPlaying, activeSegmentIndex]);
+
+  const handleSkipChapter = (direction: 'prev' | 'next') => {
+    const headingIndices = segments
+      .map((s, idx) => (s.type === 'heading' ? idx : null))
+      .filter((idx): idx is number => idx !== null);
+
+    if (headingIndices.length === 0) return;
+
+    if (activeSegmentIndex === null) {
+      startSpeechFromSegment(headingIndices[0]);
+      return;
+    }
+
+    if (direction === 'next') {
+      const nextIdx = headingIndices.find((idx) => idx > activeSegmentIndex);
+      if (nextIdx !== undefined) {
+        startSpeechFromSegment(nextIdx);
+      }
+    } else {
+      const prevIndices = headingIndices.filter((idx) => idx < activeSegmentIndex);
+      if (prevIndices.length > 0) {
+        startSpeechFromSegment(prevIndices[prevIndices.length - 1]);
+      } else {
+        startSpeechFromSegment(headingIndices[0]);
+      }
+    }
+  };
 
   // Clean text and speak from a given segment index
   const startSpeechFromSegment = (startIndex: number) => {
@@ -429,6 +485,68 @@ export function LessonPlayer({
             {title}
           </h1>
 
+          {/* Episode Statistics Badges */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+            <span className="px-2.5 py-1 rounded-lg bg-indigo-950/70 border border-indigo-700/50 text-indigo-200 flex items-center gap-1.5 font-medium">
+              <Clock className="w-3.5 h-3.5 text-indigo-400" />
+              <span>⏱ ~{stats.estMinutes} min listen</span>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-300 flex items-center gap-1.5 font-medium">
+              <FileText className="w-3.5 h-3.5 text-slate-400" />
+              <span>📖 {stats.totalWords.toLocaleString()} words</span>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-300 flex items-center gap-1.5 font-medium">
+              <Music className="w-3.5 h-3.5 text-pink-400" />
+              <span>🎵 {stats.songCount} Tracks</span>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700/60 text-slate-300 flex items-center gap-1.5 font-medium">
+              <Radio className="w-3.5 h-3.5 text-purple-400" />
+              <span>🎙 {stats.chapterCount} Chapters</span>
+            </span>
+
+            {stats.chapterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsTocOpen(!isTocOpen)}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-pink-300 border border-pink-500/30 flex items-center gap-1 font-semibold transition ml-auto"
+              >
+                <List className="w-3.5 h-3.5 text-pink-400" />
+                <span>Chapters ({stats.chapterCount})</span>
+                {isTocOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            )}
+          </div>
+
+          {/* Collapsible Table of Contents */}
+          {isTocOpen && stats.chapterCount > 0 && (
+            <div className="p-4 rounded-2xl bg-slate-950/90 border border-pink-500/30 space-y-2 animate-fade-in backdrop-blur-md">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <List className="w-3.5 h-3.5 text-pink-400" />
+                <span>Episode Chapter Outline:</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                {segments
+                  .map((s, idx) => (s.type === 'heading' ? { title: s.title, idx } : null))
+                  .filter(Boolean)
+                  .map((ch, num) => (
+                    <button
+                      key={ch!.idx}
+                      onClick={() => {
+                        startSpeechFromSegment(ch!.idx);
+                        setIsTocOpen(false);
+                      }}
+                      className="text-left px-3 py-2 rounded-xl bg-slate-900 hover:bg-pink-950/40 text-slate-300 hover:text-white border border-slate-800 hover:border-pink-500/40 text-xs font-medium flex items-center gap-2 transition group"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-pink-500/20 text-pink-300 flex items-center justify-center text-[10px] font-bold shrink-0 group-hover:bg-pink-500 group-hover:text-white transition">
+                        {num + 1}
+                      </span>
+                      <span className="truncate flex-1">{ch!.title}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-slate-800/80">
             <div className="flex items-center gap-3">
               <button
@@ -555,6 +673,7 @@ export function LessonPlayer({
           if (seg.type === 'heading') {
             return (
               <div
+                id={`segment-${seg.id}`}
                 key={seg.id}
                 className={`pt-6 pb-2 transition-all duration-300 ${
                   isCurrentlySpeaking
@@ -576,6 +695,7 @@ export function LessonPlayer({
 
             return (
               <div
+                id={`segment-${seg.id}`}
                 key={seg.id}
                 className="my-3 p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-red-500/30 shadow-lg space-y-3 transition"
               >
@@ -698,6 +818,7 @@ export function LessonPlayer({
           // 3. Regular Narrative Paragraphs: "Resume from here" button is ONLY placed here at the start
           return (
             <div
+              id={`segment-${seg.id}`}
               key={seg.id}
               className={`group relative p-3 sm:p-4 rounded-2xl transition-all duration-300 text-sm sm:text-base leading-relaxed ${
                 isCurrentlySpeaking
@@ -760,7 +881,15 @@ export function LessonPlayer({
               ))}
             </div>
 
-            {/* Play/Pause */}
+            {/* Chapter Skip & Play/Pause */}
+            <button
+              onClick={() => handleSkipChapter('prev')}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              title="Previous chapter"
+            >
+              <SkipBack className="w-3.5 h-3.5" />
+            </button>
+
             {isPaused ? (
               <button
                 onClick={handleResumeTTS}
@@ -778,6 +907,14 @@ export function LessonPlayer({
                 <Pause className="w-4 h-4 fill-white" />
               </button>
             )}
+
+            <button
+              onClick={() => handleSkipChapter('next')}
+              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+              title="Next chapter"
+            >
+              <SkipForward className="w-3.5 h-3.5" />
+            </button>
 
             {/* Stop */}
             <button

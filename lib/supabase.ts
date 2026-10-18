@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Concert, Activity, ActionType, Lesson } from './types';
+import { Concert, Activity, ActionType, Lesson, ActiveLessonBuild } from './types';
 import fs from 'fs';
 import path from 'path';
 
@@ -228,4 +228,125 @@ export async function createLesson(lessonData: {
 
   saveLocalLesson(newLesson);
   return newLesson;
+}
+
+// -------------------------------------------------------------
+// Active Lesson Build / In-Progress Podcast State Persistence
+// -------------------------------------------------------------
+const LOCAL_ACTIVE_BUILD_FILE = path.join(process.cwd(), 'data', 'active_build.json');
+
+function getLocalActiveBuild(): ActiveLessonBuild | null {
+  try {
+    if (fs.existsSync(LOCAL_ACTIVE_BUILD_FILE)) {
+      const data = fs.readFileSync(LOCAL_ACTIVE_BUILD_FILE, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error('Error reading local active build:', e);
+  }
+  return null;
+}
+
+function saveLocalActiveBuild(build: ActiveLessonBuild | null) {
+  try {
+    const dir = path.dirname(LOCAL_ACTIVE_BUILD_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (build) {
+      fs.writeFileSync(LOCAL_ACTIVE_BUILD_FILE, JSON.stringify(build, null, 2), 'utf-8');
+    } else if (fs.existsSync(LOCAL_ACTIVE_BUILD_FILE)) {
+      fs.unlinkSync(LOCAL_ACTIVE_BUILD_FILE);
+    }
+  } catch (e) {
+    console.error('Error saving local active build:', e);
+  }
+}
+
+export async function fetchActiveLessonBuild(): Promise<ActiveLessonBuild | null> {
+  try {
+    const { data, error } = await supabase
+      .from('active_lesson_build')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      return {
+        ...data,
+        outline_json: data.outline_json || null,
+        chapters_json: Array.isArray(data.chapters_json) ? data.chapters_json : []
+      };
+    }
+
+    if (error && error.code === 'PGRST205') {
+      return getLocalActiveBuild();
+    }
+  } catch (err) {
+    console.warn('Supabase fetchActiveLessonBuild error, falling back to local file:', err);
+  }
+  return getLocalActiveBuild();
+}
+
+export async function saveActiveLessonBuild(
+  buildData: Partial<ActiveLessonBuild> & { topic_prompt: string }
+): Promise<ActiveLessonBuild> {
+  const existing = await fetchActiveLessonBuild();
+  const id = existing?.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `draft-${Date.now()}`);
+
+  const updated: ActiveLessonBuild = {
+    id,
+    topic_prompt: buildData.topic_prompt,
+    title: buildData.title !== undefined ? buildData.title : (existing?.title || null),
+    outline_json: buildData.outline_json !== undefined ? buildData.outline_json : (existing?.outline_json || null),
+    chapters_json: buildData.chapters_json !== undefined ? buildData.chapters_json : (existing?.chapters_json || []),
+    content: buildData.content !== undefined ? buildData.content : (existing?.content || ''),
+    status: buildData.status || existing?.status || 'in_progress',
+    current_step: buildData.current_step !== undefined ? buildData.current_step : (existing?.current_step || null),
+    updated_at: new Date().toISOString()
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('active_lesson_build')
+      .upsert([{
+        id: updated.id,
+        topic_prompt: updated.topic_prompt,
+        title: updated.title,
+        outline_json: updated.outline_json,
+        chapters_json: updated.chapters_json,
+        content: updated.content,
+        status: updated.status,
+        current_step: updated.current_step,
+        updated_at: updated.updated_at
+      }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      saveLocalActiveBuild(data);
+      return data;
+    }
+
+    if (error) {
+      console.warn('Error saving active_lesson_build in Supabase, using local file:', error);
+      saveLocalActiveBuild(updated);
+      return updated;
+    }
+  } catch (err) {
+    console.warn('Error connecting to Supabase for active_lesson_build, saving locally:', err);
+  }
+
+  saveLocalActiveBuild(updated);
+  return updated;
+}
+
+export async function clearActiveLessonBuild(): Promise<void> {
+  try {
+    await supabase.from('active_lesson_build').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  } catch (err) {
+    console.warn('Error deleting active_lesson_build from Supabase:', err);
+  }
+  saveLocalActiveBuild(null);
 }

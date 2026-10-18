@@ -248,14 +248,14 @@ Refining an 8,000-word lesson via "Suggest Changes" in one shot could truncate t
 
 ## 8. Implementation Checklist (When Triggered)
 
-- [ ] **Database**: Create `active_lesson_build` table in Supabase with RLS policies.
-- [ ] **Draft API**: Add endpoints (`GET /api/lessons/draft`, `DELETE /api/lessons/draft`) to query and clear the active building state.
-- [ ] **Lib**: In `lib/gemini.ts`, implement `planLessonCurriculum` and `generateLessonChapter` with progressive database updates on each chapter return.
-- [ ] **Backend**: Upgrade `POST /api/lessons/generate` in `app/api/lessons/generate/route.ts` to stream progress and support resuming from a specific chapter.
-- [ ] **Frontend**: In `app/lessons/page.tsx`:
+- [x] **Database**: Create `active_lesson_build` table in Supabase with RLS policies.
+- [x] **Draft API**: Add endpoints (`GET /api/lessons/draft`, `DELETE /api/lessons/draft`) to query and clear the active building state.
+- [x] **Lib**: In `lib/gemini.ts`, implement `planLessonCurriculum` and `generateLessonChapter` with progressive database updates on each chapter return.
+- [x] **Backend**: Upgrade `POST /api/lessons/generate` in `app/api/lessons/generate/route.ts` to stream progress and support resuming from a specific chapter.
+- [x] **Frontend**: In `app/lessons/page.tsx`:
   - Auto-check and restore `active_lesson_build` on mount.
   - Implement "Resume Generation" for interrupted builds.
   - Add "Discard & Start New" confirmation modal before overwriting an active draft.
   - Display the live generation stepper (`[✓ Syllabus Planned] → [Writing Chapters...]`).
-- [ ] **Player**: Add Chapter Table of Contents sidebar and reading time badge to `components/LessonPlayer.tsx`.
-- [ ] **Auto-scroll**: Implement active-paragraph viewport tracking during TTS playback.
+- [x] **Player**: Add Chapter Table of Contents sidebar and reading time badge to `components/LessonPlayer.tsx`.
+- [x] **Auto-scroll**: Implement active-paragraph viewport tracking during TTS playback.

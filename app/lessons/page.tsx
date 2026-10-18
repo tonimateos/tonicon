@@ -17,9 +17,23 @@ import {
   Send,
   Search,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  RotateCcw,
+  PlayCircle,
+  Trash2,
+  List,
+  Clock,
+  Layers,
+  ChevronRight
 } from 'lucide-react';
-import { Lesson } from '@/lib/types';
+import {
+  Lesson,
+  ActiveLessonBuild,
+  LessonOutline,
+  CompletedChapter,
+  LessonStreamEvent
+} from '@/lib/types';
 import { LessonPlayer } from '@/components/LessonPlayer';
 import { AdminLoginModal } from '@/components/AdminLoginModal';
 
@@ -51,7 +65,17 @@ export default function LessonsPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
-  // Active generated lesson draft
+  // Active Draft / In-Progress Build State
+  const [activeBuild, setActiveBuild] = useState<ActiveLessonBuild | null>(null);
+  const [liveStatusMessage, setLiveStatusMessage] = useState<string | null>(null);
+  const [liveOutline, setLiveOutline] = useState<LessonOutline | null>(null);
+  const [liveChapters, setLiveChapters] = useState<CompletedChapter[]>([]);
+
+  // Discard Confirmation Safeguard Modal State
+  const [showDiscardModal, setShowDiscardModal] = useState<boolean>(false);
+  const [pendingPromptToRun, setPendingPromptToRun] = useState<string | null>(null);
+
+  // Active ready draft (for LessonPlayer)
   const [currentDraft, setCurrentDraft] = useState<{
     title: string;
     content: string;
@@ -108,19 +132,177 @@ export default function LessonsPage() {
     }
   };
 
+  // Fetch active in-progress draft from DB
+  const fetchActiveDraft = async () => {
+    try {
+      const res = await fetch('/api/lessons/draft');
+      const data = await res.json();
+      if (res.ok && data.draft) {
+        setActiveBuild(data.draft);
+        if (data.draft.outline_json) {
+          setLiveOutline(data.draft.outline_json);
+        }
+        if (Array.isArray(data.draft.chapters_json)) {
+          setLiveChapters(data.draft.chapters_json);
+        }
+        // If already completed in DB, mount into player view
+        if (data.draft.status === 'completed' && data.draft.content) {
+          setCurrentDraft({
+            title: data.draft.title || data.draft.topic_prompt,
+            content: data.draft.content,
+            topicPrompt: data.draft.topic_prompt,
+            isSaved: false
+          });
+        }
+      } else {
+        setActiveBuild(null);
+      }
+    } catch (err) {
+      console.warn('Failed to load active draft:', err);
+    }
+  };
+
   useEffect(() => {
     fetchLessons();
+    fetchActiveDraft();
   }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => {
       setToastMessage(null);
-    }, 4000);
+    }, 4500);
   };
 
-  // Generate new lesson with Gemini
-  const handleGenerateLesson = async (e?: React.FormEvent) => {
+  // SSE Stream Generation Pipeline
+  const startStreamGeneration = async (promptText: string, isResume = false) => {
+    setIsGenerating(true);
+    setGenerationError(null);
+    setLiveStatusMessage(
+      isResume
+        ? 'Resuming podcast generation...'
+        : '🧠 Gemini is designing the episode syllabus (structuring chapters, artists & songs)...'
+    );
+
+    if (!isResume) {
+      setLiveOutline(null);
+      setLiveChapters([]);
+      setCurrentDraft(null);
+    } else if (activeBuild?.outline_json) {
+      setLiveOutline(activeBuild.outline_json);
+      setLiveChapters(activeBuild.chapters_json || []);
+    }
+
+    try {
+      const res = await fetch('/api/lessons/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: isResume ? 'resume' : 'generate',
+          userPrompt: promptText,
+          password: adminPassword,
+          stream: true
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Generation failed with status ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error('No readable stream received from server');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const event: LessonStreamEvent = JSON.parse(trimmed.slice(6));
+
+              if (event.type === 'status') {
+                setLiveStatusMessage(event.message);
+              } else if (event.type === 'outline') {
+                setLiveOutline(event.data);
+                setActiveBuild((prev) => ({
+                  id: prev?.id || `draft-${Date.now()}`,
+                  topic_prompt: promptText,
+                  title: event.data.title,
+                  outline_json: event.data,
+                  chapters_json: prev?.chapters_json || [],
+                  content: `# ${event.data.title}\n\n${event.data.intro}`,
+                  status: 'in_progress',
+                  updated_at: new Date().toISOString()
+                }));
+              } else if (event.type === 'chapter') {
+                setLiveChapters((prev) => {
+                  const filtered = prev.filter((c) => c.chapter_number !== event.chapter.chapter_number);
+                  return [...filtered, event.chapter];
+                });
+                setActiveBuild((prev) => ({
+                  id: prev?.id || `draft-${Date.now()}`,
+                  topic_prompt: prev?.topic_prompt || promptText,
+                  title: prev?.title || null,
+                  outline_json: prev?.outline_json || null,
+                  status: 'in_progress',
+                  updated_at: new Date().toISOString(),
+                  chapters_json: [
+                    ...(prev?.chapters_json || []).filter((c) => c.chapter_number !== event.chapter.chapter_number),
+                    event.chapter
+                  ],
+                  content: event.accumulatedContent
+                }));
+              } else if (event.type === 'complete') {
+                setCurrentDraft({
+                  title: event.lesson.title,
+                  content: event.lesson.content,
+                  topicPrompt: promptText,
+                  isSaved: false
+                });
+                setActiveBuild((prev) => ({
+                  id: prev?.id || `draft-${Date.now()}`,
+                  topic_prompt: prev?.topic_prompt || promptText,
+                  title: event.lesson.title,
+                  outline_json: prev?.outline_json || null,
+                  chapters_json: prev?.chapters_json || [],
+                  content: event.lesson.content,
+                  status: 'completed',
+                  updated_at: new Date().toISOString()
+                }));
+                showToast(`Podcast episode complete! (${event.lesson.totalWords.toLocaleString()} words)`);
+                setLiveStatusMessage(null);
+              } else if (event.type === 'error') {
+                throw new Error(event.error);
+              }
+            } catch (parseErr) {
+              console.warn('Failed to parse SSE event:', parseErr, trimmed);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Generation error:', err);
+      setGenerationError(err.message || 'An error occurred during podcast generation.');
+    } finally {
+      setIsGenerating(false);
+      fetchActiveDraft();
+    }
+  };
+
+  // Form submit handler with safeguard check
+  const handleInitiateNewLesson = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!userPrompt.trim()) return;
 
@@ -129,39 +311,45 @@ export default function LessonsPage() {
       return;
     }
 
-    setIsGenerating(true);
-    setGenerationError(null);
-
-    try {
-      const res = await fetch('/api/lessons/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'generate',
-          userPrompt: userPrompt.trim(),
-          password: adminPassword
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to generate lesson.');
-      }
-
-      setCurrentDraft({
-        title: data.title || userPrompt.trim().slice(0, 60),
-        content: data.content,
-        topicPrompt: userPrompt.trim(),
-        isSaved: false
-      });
-      showToast('Podcast lesson generated! Review and click Save when ready.');
-    } catch (err: any) {
-      console.error('Error generating lesson:', err);
-      setGenerationError(err.message || 'An error occurred while calling the Gemini API.');
-    } finally {
-      setIsGenerating(false);
+    // Safeguard: Check if an active build exists
+    if (activeBuild && (activeBuild.outline_json || activeBuild.chapters_json?.length > 0)) {
+      setPendingPromptToRun(userPrompt.trim());
+      setShowDiscardModal(true);
+      return;
     }
+
+    startStreamGeneration(userPrompt.trim(), false);
+  };
+
+  // Confirm discard of active build & start fresh
+  const handleConfirmDiscardAndStart = async () => {
+    setShowDiscardModal(false);
+    try {
+      await fetch('/api/lessons/draft', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword })
+      });
+    } catch (e) {
+      console.warn('Could not delete draft on server:', e);
+    }
+
+    setActiveBuild(null);
+    setCurrentDraft(null);
+    setLiveOutline(null);
+    setLiveChapters([]);
+
+    if (pendingPromptToRun) {
+      const promptToRun = pendingPromptToRun;
+      setPendingPromptToRun(null);
+      startStreamGeneration(promptToRun, false);
+    }
+  };
+
+  // Resume active build
+  const handleResumeActiveBuild = () => {
+    if (!activeBuild) return;
+    startStreamGeneration(activeBuild.topic_prompt, true);
   };
 
   // Refine lesson with Gemini
@@ -178,7 +366,8 @@ export default function LessonsPage() {
           originalPrompt: currentDraft.topicPrompt,
           previousLesson: currentDraft.content,
           userSuggestion,
-          password: adminPassword
+          password: adminPassword,
+          stream: false
         })
       });
 
@@ -203,7 +392,7 @@ export default function LessonsPage() {
     }
   };
 
-  // Save lesson to DB
+  // Save lesson to DB & clear active build draft
   const handleSaveLesson = async () => {
     if (!currentDraft) return;
 
@@ -226,13 +415,21 @@ export default function LessonsPage() {
         throw new Error(data.error || 'Failed to save lesson.');
       }
 
+      // Clear active build draft since it is now permanently saved in the lessons table
+      await fetch('/api/lessons/draft', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword })
+      }).catch(() => {});
+
+      setActiveBuild(null);
+
       setCurrentDraft({
         ...currentDraft,
         isSaved: true
       });
 
       showToast('Lesson saved successfully! It is now in Saved Lessons.');
-      // Refresh list
       fetchLessons();
     } catch (err: any) {
       console.error('Error saving lesson:', err);
@@ -258,55 +455,49 @@ export default function LessonsPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition shadow"
-              title="Back to Concerts"
+              className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition"
+              title="Return to Concerts"
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
-
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-pink-500/40 shadow-lg shadow-pink-500/20 shrink-0 bg-slate-900">
-                <img src="/totoro.jpg" alt="Totoro" className="w-full h-full object-cover rounded-full" />
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-pink-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/20">
+                <Radio className="w-4 h-4" />
               </div>
               <div>
-                <h1 className="font-extrabold text-base sm:text-lg text-white tracking-tight flex items-center gap-2">
-                  <span>Tonicon</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30 font-semibold">
-                    Lessons
+                <h1 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
+                  <span>Music Lessons</span>
+                  <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                    Podcasts v2
                   </span>
                 </h1>
-                <p className="text-[11px] text-slate-400 hidden sm:block">
-                  World music podcast lessons & interactive song listening
-                </p>
+                <p className="text-[10px] text-slate-400">Deep-dive music podcasts & history</p>
               </div>
             </div>
           </div>
 
-          {/* Admin Controls */}
+          {/* Admin Status / Unlock */}
           <div className="flex items-center gap-2">
-            {!isAdmin ? (
-              <button
-                onClick={() => setIsAdminModalOpen(true)}
-                className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
-                title="Unlock Admin Mode"
-              >
-                <Lock className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Unlock Admin</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded-lg">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Admin Mode
-                </span>
+            {isAdmin ? (
+              <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/80 px-3 py-1.5 rounded-xl text-xs text-emerald-300">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold hidden sm:inline">Admin Mode</span>
                 <button
                   onClick={handleAdminLogout}
-                  className="p-2 bg-slate-900 hover:bg-rose-950/50 text-slate-400 hover:text-rose-400 border border-slate-800 rounded-xl transition"
-                  title="Logout Admin"
+                  className="ml-1 text-slate-400 hover:text-white"
+                  title="Lock Admin Mode"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
+            ) : (
+              <button
+                onClick={() => setIsAdminModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition"
+              >
+                <Lock className="w-3.5 h-3.5 text-pink-400" />
+                <span>Admin Unlock</span>
+              </button>
             )}
           </div>
         </div>
@@ -314,22 +505,22 @@ export default function LessonsPage() {
 
       {/* Main Container */}
       <div className="max-w-4xl mx-auto px-4 pt-6 space-y-6">
-        {/* Navigation Tabs (Saved Lessons vs Add Lesson) */}
-        <div className="flex items-center gap-3 border-b border-slate-800/90 pb-3">
+        {/* Navigation Tabs */}
+        <div className="flex p-1 bg-slate-900/90 rounded-2xl border border-slate-800 max-w-md mx-auto shadow-inner">
           <button
             onClick={() => {
               setActiveTab('saved');
               setSelectedLesson(null);
             }}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition ${
+            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${
               activeTab === 'saved'
-                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-lg shadow-pink-600/20'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <BookOpen className="w-4 h-4" />
+            <BookOpen className="w-3.5 h-3.5" />
             <span>Saved Lessons</span>
-            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-slate-950/60 text-[10px] text-white">
+            <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
               {savedLessons.length}
             </span>
           </button>
@@ -339,68 +530,68 @@ export default function LessonsPage() {
               setActiveTab('add');
               setSelectedLesson(null);
             }}
-            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition ${
+            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${
               activeTab === 'add'
-                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-lg shadow-pink-600/20'
-                : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
+                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Plus className="w-4 h-4" />
+            <Sparkles className="w-3.5 h-3.5" />
             <span>Music Podcasts</span>
-            {!isAdmin && <Lock className="w-3 h-3 text-slate-500 ml-0.5" />}
+            {activeBuild && activeBuild.status !== 'completed' && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            )}
           </button>
         </div>
 
         {/* Tab 1: Saved Lessons */}
         {activeTab === 'saved' && (
-          <div>
+          <div className="space-y-6">
             {selectedLesson ? (
               <div className="space-y-4">
                 <button
                   onClick={() => setSelectedLesson(null)}
-                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition mb-2"
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to all Saved Lessons</span>
+                  <span>Back to Saved Lessons</span>
                 </button>
 
                 <LessonPlayer
                   title={selectedLesson.title}
                   content={selectedLesson.content}
                   topicPrompt={selectedLesson.topic_prompt}
-                  readOnly={true}
+                  readOnly
+                  isAdmin={isAdmin}
                 />
               </div>
             ) : (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Search Bar */}
                 <div className="relative">
-                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search saved music lessons..."
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900/90 border border-slate-800 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner"
+                    placeholder="Search saved lessons by title or keyword..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-800 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner"
                   />
                 </div>
 
                 {loadingSaved ? (
-                  <div className="py-16 text-center text-slate-500 text-sm">
-                    <Radio className="w-6 h-6 animate-pulse mx-auto mb-2 text-pink-400" />
-                    Loading saved music lessons...
+                  <div className="py-16 text-center text-slate-500 text-xs animate-pulse">
+                    Loading music lessons...
                   </div>
                 ) : filteredLessons.length === 0 ? (
-                  <div className="py-16 text-center rounded-3xl bg-slate-900/40 border border-slate-800/80 p-8 space-y-4">
-                    <div className="w-14 h-14 rounded-2xl bg-pink-500/10 border border-pink-500/20 text-pink-400 flex items-center justify-center mx-auto">
-                      <Headphones className="w-7 h-7" />
-                    </div>
+                  <div className="py-16 text-center rounded-3xl bg-slate-900/40 border border-slate-800/80 p-8 space-y-3">
+                    <Headphones className="w-10 h-10 text-slate-600 mx-auto" />
                     <div className="space-y-1">
-                      <h3 className="text-base font-bold text-white">No lessons found</h3>
+                      <p className="text-sm font-semibold text-white">No Lessons Found</p>
                       <p className="text-xs text-slate-400 max-w-sm mx-auto">
                         {searchQuery
                           ? 'No lessons matched your search query.'
-                          : 'No lessons have been saved yet. Switch to "Add Lesson" to generate your first music lesson!'}
+                          : 'No lessons have been saved yet. Switch to "Music Podcasts" to generate your first long-form lesson!'}
                       </p>
                     </div>
                     {isAdmin && (
@@ -409,7 +600,7 @@ export default function LessonsPage() {
                         className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs inline-flex items-center gap-1.5 shadow-lg shadow-pink-600/30 transition"
                       >
                         <Plus className="w-4 h-4" />
-                        <span>Create First Lesson</span>
+                        <span>Create First Podcast</span>
                       </button>
                     )}
                   </div>
@@ -432,7 +623,7 @@ export default function LessonsPage() {
                               })}
                             </span>
                             <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
-                              Podcast
+                              Podcast Episode
                             </span>
                           </div>
 
@@ -465,7 +656,7 @@ export default function LessonsPage() {
           </div>
         )}
 
-        {/* Tab 2: Add Lesson */}
+        {/* Tab 2: Music Podcasts (Creation & In-Progress Draft) */}
         {activeTab === 'add' && (
           <div className="space-y-6">
             {!isAdmin ? (
@@ -488,12 +679,133 @@ export default function LessonsPage() {
                   <span>Unlock Admin Mode</span>
                 </button>
               </div>
+            ) : isGenerating ? (
+              /* Live Real-Time Generation Dashboard */
+              <div className="space-y-6">
+                {/* 1. Live Animated Status Indicator */}
+                <div className="p-5 rounded-3xl bg-gradient-to-br from-indigo-950/80 via-slate-900 to-slate-950 border border-pink-500/50 shadow-2xl space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-pink-500/20 border border-pink-500/40 text-pink-400 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-5 h-5 animate-spin" />
+                    </div>
+                    <div className="space-y-0.5 flex-1 min-w-0">
+                      <span className="text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded bg-pink-500/20 text-pink-300">
+                        Live Podcast Generation
+                      </span>
+                      <p className="text-xs sm:text-sm font-semibold text-white truncate">
+                        {liveStatusMessage || 'Gemini is writing your deep-dive lesson...'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. Episode Syllabus Card (as soon as Phase 1 lands) */}
+                {liveOutline && (
+                  <div className="p-6 rounded-3xl bg-slate-900/80 border border-indigo-500/40 shadow-xl space-y-4 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                        Episode Roadmap Planned
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">
+                        {liveOutline.chapters.length} Chapters Planned
+                      </span>
+                    </div>
+
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-extrabold text-white">
+                        {liveOutline.title}
+                      </h2>
+                      <p className="text-xs text-slate-300 mt-1 italic">
+                        {liveOutline.intro}
+                      </p>
+                    </div>
+
+                    {/* Visual Chapter Checklist */}
+                    <div className="space-y-2 pt-2 border-t border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Generation Progress:
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {liveOutline.chapters.map((ch, idx) => {
+                          const isDone = liveChapters.some((c) => c.chapter_number === ch.chapter_number);
+                          const isWritingNow = !isDone && liveChapters.length === idx;
+
+                          return (
+                            <div
+                              key={ch.chapter_number}
+                              className={`p-3 rounded-xl border text-xs transition ${
+                                isDone
+                                  ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
+                                  : isWritingNow
+                                  ? 'bg-pink-950/40 border-pink-500/60 text-white shadow-lg animate-pulse'
+                                  : 'bg-slate-950 border-slate-800/80 text-slate-400'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold flex items-center gap-1.5 truncate">
+                                  {isDone ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                  ) : isWritingNow ? (
+                                    <Sparkles className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
+                                  ) : (
+                                    <span className="w-3.5 h-3.5 rounded-full border border-slate-600 inline-block shrink-0" />
+                                  )}
+                                  <span className="truncate">Ch {ch.chapter_number}: {ch.title}</span>
+                                </span>
+                                {isDone && (
+                                  <span className="text-[10px] text-emerald-400 font-semibold shrink-0">
+                                    Done
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Progressive Chapters Feed (Rendered as they land) */}
+                {liveChapters.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-pink-400" />
+                      <span>Live Chapter Stream (You can start reading now):</span>
+                    </h3>
+                    <div className="space-y-4">
+                      {liveChapters.map((ch) => (
+                        <div
+                          key={ch.chapter_number}
+                          className="p-6 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-3 animate-fade-in"
+                        >
+                          <div className="flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-800">
+                            <span className="text-pink-400 font-bold">Chapter {ch.chapter_number}</span>
+                            <span>{ch.wordCount.toLocaleString()} words</span>
+                          </div>
+                          <div className="prose prose-invert max-w-none text-xs sm:text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">
+                            {ch.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : currentDraft ? (
-              /* Active Draft Viewer with TTS & Suggest Changes */
+              /* Active Completed Draft Viewer with TTS & Suggest Changes */
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <button
-                    onClick={() => setCurrentDraft(null)}
+                    onClick={() => {
+                      if (!currentDraft.isSaved && activeBuild) {
+                        setShowDiscardModal(true);
+                      } else {
+                        setCurrentDraft(null);
+                        setActiveBuild(null);
+                      }
+                    }}
                     className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold flex items-center gap-1.5 border border-slate-800 transition"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -520,6 +832,79 @@ export default function LessonsPage() {
                   isAdmin={isAdmin}
                 />
               </div>
+            ) : activeBuild && activeBuild.status !== 'completed' && activeBuild.outline_json ? (
+              /* Unfinished Podcast In-Progress Card (Restored from DB) */
+              <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-indigo-950/70 via-slate-900 to-slate-950 border border-amber-500/40 shadow-2xl space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5">
+                    <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                    Unfinished Podcast in Progress
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    {activeBuild.chapters_json?.length || 0} of {activeBuild.outline_json.chapters.length} chapters completed
+                  </span>
+                </div>
+
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">
+                    {activeBuild.title || activeBuild.topic_prompt}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1 italic">
+                    Prompt: "{activeBuild.topic_prompt}"
+                  </p>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-slate-950 rounded-full h-2 border border-slate-800 overflow-hidden">
+                  <div
+                    className="bg-gradient-to-r from-pink-500 to-indigo-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.round(
+                        ((activeBuild.chapters_json?.length || 0) /
+                          Math.max(1, activeBuild.outline_json.chapters.length)) *
+                          100
+                      )}%`
+                    }}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleResumeActiveBuild}
+                      className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-pink-600/30 transition transform active:scale-95"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                      <span>Resume Building Podcast</span>
+                    </button>
+
+                    {activeBuild.content && (
+                      <button
+                        onClick={() => {
+                          setCurrentDraft({
+                            title: activeBuild.title || activeBuild.topic_prompt,
+                            content: activeBuild.content,
+                            topicPrompt: activeBuild.topic_prompt,
+                            isSaved: false
+                          });
+                        }}
+                        className="px-4 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 transition"
+                      >
+                        <Headphones className="w-4 h-4 text-pink-400" />
+                        <span>Read / Listen to Progress</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setShowDiscardModal(true)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-700/50 text-xs font-medium flex items-center gap-1.5 transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Discard Draft</span>
+                  </button>
+                </div>
+              </div>
             ) : (
               /* Add Lesson Prompt Form */
               <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/70 border border-slate-800/80 shadow-2xl space-y-6 backdrop-blur-xl">
@@ -527,15 +912,15 @@ export default function LessonsPage() {
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-pink-400" />
                     <h2 className="text-xl font-bold text-white tracking-tight">
-                      Create a New Music Lesson
+                      Create Long-Form Music Podcast
                     </h2>
                   </div>
                   <p className="text-xs text-slate-400">
-                    Describe what you'd like to learn about music. Gemini will act as a world music expert and generate a podcast-style lesson with in-page playable YouTube tracks.
+                    Describe what you'd like to learn about music. Gemini will act as a world-expert podcast producer, generating a 5,000–8,000+ word multi-chapter episode with historical depth, musicological analysis, and playable YouTube tracks.
                   </p>
                 </div>
 
-                <form onSubmit={handleGenerateLesson} className="space-y-4">
+                <form onSubmit={handleInitiateNewLesson} className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-2">
                       What would you like to learn about music?
@@ -584,38 +969,60 @@ export default function LessonsPage() {
                       disabled={isGenerating || !userPrompt.trim()}
                       className="px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-pink-600/30 transition transform active:scale-95 disabled:opacity-50"
                     >
-                      {isGenerating ? (
-                        <>
-                          <Sparkles className="w-4 h-4 animate-spin" />
-                          <span>Generating Podcast Lesson with Gemini...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          <span>Send</span>
-                        </>
-                      )}
+                      <Sparkles className="w-4 h-4" />
+                      <span>Generate Deep Podcast Episode</span>
                     </button>
                   </div>
                 </form>
-
-                {/* Animated Loading State while generating */}
-                {isGenerating && (
-                  <div className="p-6 rounded-2xl bg-slate-950 border border-pink-500/30 shadow-inner text-center space-y-3 animate-pulse">
-                    <Radio className="w-8 h-8 text-pink-400 mx-auto animate-bounce" />
-                    <p className="text-sm font-semibold text-white">
-                      Synthesizing World Music Knowledge...
-                    </p>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                      Gemini is structuring your podcast episode, researching historical context, and embedding in-page playable YouTube tracks. This takes around 10-15 seconds.
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Discard Active Build Safeguard Warning Modal */}
+      {showDiscardModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-amber-500/40 p-6 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-white">Unfinished Podcast in Progress</h3>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  You have a podcast currently being built:
+                  <span className="block font-semibold text-white mt-1 italic">
+                    "{activeBuild?.title || activeBuild?.topic_prompt}"
+                  </span>
+                  with {activeBuild?.chapters_json?.length || 0} of {activeBuild?.outline_json?.chapters.length || 6} chapters written.
+                </p>
+                <p className="text-xs text-amber-300/90 pt-1">
+                  Starting a new podcast will permanently discard this unfinished work. Are you sure?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <button
+                onClick={() => {
+                  setShowDiscardModal(false);
+                  setPendingPromptToRun(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition"
+              >
+                Keep Current Draft
+              </button>
+              <button
+                onClick={handleConfirmDiscardAndStart}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-lg shadow-rose-600/30"
+              >
+                Discard & Start New
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Login Modal */}
       <AdminLoginModal

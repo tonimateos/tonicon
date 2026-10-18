@@ -113,3 +113,19 @@ CREATE INDEX IF NOT EXISTS idx_lessons_created_at ON public.lessons (created_at 
 ALTER TABLE public.lessons ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public read access to lessons" ON public.lessons FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access to lessons" ON public.lessons FOR INSERT WITH CHECK (true);
+
+-- 8. Active Lesson Build Table (for resilient multi-step generation & auto-resume)
+CREATE TABLE IF NOT EXISTS public.active_lesson_build (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    topic_prompt TEXT NOT NULL,
+    title TEXT,
+    outline_json JSONB,
+    chapters_json JSONB DEFAULT '[]'::jsonb,
+    content TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    current_step TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.active_lesson_build ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public all access to active_lesson_build" ON public.active_lesson_build FOR ALL USING (true) WITH CHECK (true);
