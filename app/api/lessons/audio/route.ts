@@ -11,6 +11,8 @@ import { AudioSegment, AudioStreamEvent, extractQuotaWaitTime, isQuotaError } fr
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // Allow sufficient time for multi-paragraph speech generation
 
+import { parseLessonSegments } from '@/lib/lesson-parser';
+
 interface ParsedSegment {
   id: number;
   type: 'heading' | 'paragraph';
@@ -18,73 +20,14 @@ interface ParsedSegment {
 }
 
 function parseLessonContentToSegments(content: string): ParsedSegment[] {
-  const lines = content.split('\n');
-  const segments: ParsedSegment[] = [];
-  let currentParagraph = '';
-  let segmentIdCounter = 0;
-
-  const flushParagraph = () => {
-    if (currentParagraph.trim()) {
-      const clean = sanitizeSpokenText(currentParagraph);
-      if (clean.length > 2) {
-        segments.push({
-          id: segmentIdCounter++,
-          type: 'paragraph',
-          text: currentParagraph.trim()
-        });
-      }
-      currentParagraph = '';
-    }
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-
-    if (!line) {
-      flushParagraph();
-      continue;
-    }
-
-    // Skip top title # (intro text is spoken, title heading is omitted or spoken as intro)
-    if (line.startsWith('# ')) {
-      continue;
-    }
-
-    // Heading ##
-    if (line.startsWith('## ') || line.startsWith('### ')) {
-      flushParagraph();
-      const headingTitle = line.replace(/^#+\s*/, '').trim();
-      if (headingTitle) {
-        segments.push({
-          id: segmentIdCounter++,
-          type: 'heading',
-          text: headingTitle
-        });
-      }
-      continue;
-    }
-
-    // Check if line is an inline song link
-    const isSongLink =
-      /\[(?:Play\s+)?(.*?)(?:\s+on\s+YouTube)?\]\(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+\)/i.test(line) ||
-      /^https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+$/i.test(line);
-
-    if (isSongLink) {
-      flushParagraph();
-      // Song links are not converted to speech because they are played via YouTube embeds
-      continue;
-    }
-
-    // Normal text
-    if (currentParagraph) {
-      currentParagraph += ' ' + line;
-    } else {
-      currentParagraph = line;
-    }
-  }
-
-  flushParagraph();
-  return segments;
+  const parsed = parseLessonSegments(content);
+  return parsed
+    .filter((s) => s.type === 'heading' || s.type === 'paragraph')
+    .map((s) => ({
+      id: s.spokenId ?? s.id,
+      type: s.type as 'heading' | 'paragraph',
+      text: s.rawSpeechText || s.text
+    }));
 }
 
 export async function GET(req: NextRequest) {

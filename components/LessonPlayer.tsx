@@ -28,7 +28,8 @@ import {
   Loader2,
   CheckCircle2
 } from 'lucide-react';
-import { AudioSegment, AudioStreamEvent, extractQuotaWaitTime } from '@/lib/types';
+import { AudioSegment, AudioStreamEvent, extractQuotaWaitTime, PlayerSegment } from '@/lib/types';
+import { parseLessonSegments, cleanVisualText, sanitizeTextForSpeech, getEmbedUrl } from '@/lib/lesson-parser';
 
 interface LessonPlayerProps {
   id?: string;
@@ -49,57 +50,7 @@ interface LessonPlayerProps {
   initialAudioStatus?: 'none' | 'in_progress' | 'paused' | 'ready';
 }
 
-interface Segment {
-  id: number;
-  type: 'heading' | 'paragraph' | 'inline_song';
-  title?: string;
-  text: string;
-  rawSpeechText: string;
-  songTitle?: string;
-  youtubeUrl?: string;
-  embedUrl?: string;
-}
-
-function sanitizeTextForSpeech(raw: string): string {
-  return raw
-    // Remove sound cues like (Intro music fades in...) or [Music fades]
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
-    .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
-    // Remove speaker labels like **Host:**, Host:, Narrator:, Locutor:
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
-    // Format markdown song links into spoken track names
-    .replace(/\[(?:Play|Escuchar|Reproducir)?\s*(.*?)(?:\s+(?:on|en)\s+YouTube)?\]\(.*?\)/gi, '$1')
-    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-    .replace(/https?:\/\/\S+/g, '')
-    .replace(/[*_~`#]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function cleanVisualText(raw: string): string {
-  return raw
-    // Remove sound cues like (Intro music fades in...)
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
-    // Remove speaker labels like **Host:** or Host:
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
-    .trim();
-}
-
-function getEmbedUrl(youtubeUrl: string): string {
-  const queryMatch = youtubeUrl.match(/[?&]search_query=([^&#]+)/);
-  if (queryMatch && queryMatch[1]) {
-    return `https://www.youtube-nocookie.com/embed?listType=search&list=${queryMatch[1]}&autoplay=1`;
-  }
-
-  const idMatch = youtubeUrl.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|watch\?v=|\&v=)([^#\&\?]{11})/);
-  if (idMatch && idMatch[1]) {
-    return `https://www.youtube-nocookie.com/embed/${idMatch[1]}?autoplay=1`;
-  }
-
-  return youtubeUrl;
-}
+type Segment = PlayerSegment;
 
 export function LessonPlayer({
   id,
@@ -238,71 +189,7 @@ export function LessonPlayer({
 
   // 2. Parse Markdown content into structured segments
   const segments = useMemo(() => {
-    const lines = content.split('\n');
-    const result: Segment[] = [];
-    let currentId = 0;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-
-      // Skip top-level # title since it's already shown in hero
-      if (line.startsWith('# ') && !line.startsWith('## ')) {
-        continue;
-      }
-
-      if (line.startsWith('## ') || line.startsWith('### ')) {
-        const headingText = line.replace(/^#{2,3}\s+/, '').replace(/\*\*/g, '');
-        result.push({
-          id: currentId++,
-          type: 'heading',
-          title: headingText,
-          text: headingText,
-          rawSpeechText: sanitizeTextForSpeech(headingText)
-        });
-      } else {
-        // Check for YouTube link in line
-        const ytMatch =
-          line.match(/\[(.*?)(?:(?:on|en)\s+YouTube)?\]\((https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)\)/i) ||
-          line.match(/(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[^\s)]+)/i);
-
-        if (ytMatch) {
-          const ytUrl = ytMatch[2] || ytMatch[1];
-          const rawLinkText = ytMatch[1] || '';
-          const songLabel =
-            rawLinkText
-              .replace(/^(?:Play|Escuchar|Reproducir)\s+/i, '')
-              .replace(/\s+(?:on|en)\s+YouTube$/i, '')
-              .replace(/[*"'`]/g, '')
-              .trim() || 'Featured Track';
-
-          // Add inline song segment
-          result.push({
-            id: currentId++,
-            type: 'inline_song',
-            text: line,
-            songTitle: songLabel,
-            youtubeUrl: ytUrl,
-            rawSpeechText: '' // Songs themselves aren't read by TTS; speech pauses
-          });
-        } else {
-          // Normal narrative paragraph
-          const cleanedVisual = cleanVisualText(line);
-          const speechText = sanitizeTextForSpeech(line);
-
-          // Only add if there is actual spoken content
-          if (cleanedVisual.length > 0 && speechText.length > 0) {
-            result.push({
-              id: currentId++,
-              type: 'paragraph',
-              text: cleanedVisual,
-              rawSpeechText: speechText
-            });
-          }
-        }
-      }
-    }
-
+    const result = parseLessonSegments(content);
     segmentsRef.current = result;
     return result;
   }, [content]);
@@ -539,7 +426,8 @@ export function LessonPlayer({
       }
 
       // Check if studio audio is available and active
-      const studioClip = audioSegments.find((a) => a.segment_id === segment.id);
+      const studioTargetId = segment.spokenId ?? segment.id;
+      const studioClip = audioSegments.find((a) => a.segment_id === studioTargetId);
 
       if (audioMode === 'studio' && studioClip?.audio_url) {
         const audio = new Audio(studioClip.audio_url);
@@ -549,7 +437,8 @@ export function LessonPlayer({
         // Preload next audio clip
         const nextSegment = segments[currentIdx + 1];
         if (nextSegment) {
-          const nextClip = audioSegments.find((a) => a.segment_id === nextSegment.id);
+          const nextTargetId = nextSegment.spokenId ?? nextSegment.id;
+          const nextClip = audioSegments.find((a) => a.segment_id === nextTargetId);
           if (nextClip?.audio_url) {
             const preloader = new Audio(nextClip.audio_url);
             preloader.preload = 'auto';
@@ -1320,7 +1209,7 @@ export function LessonPlayer({
                 </button>
 
                 <div className="flex-1 space-y-1">
-                  {audioSegments.some((a) => a.segment_id === seg.id) && audioMode === 'studio' && (
+                  {audioSegments.some((a) => a.segment_id === (seg.spokenId ?? seg.id)) && audioMode === 'studio' && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-pink-300 bg-pink-950/60 border border-pink-800/50 px-2 py-0.5 rounded-full mb-1">
                       <Mic className="w-2.5 h-2.5 text-pink-400" />
                       <span>Studio Audio</span>

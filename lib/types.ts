@@ -76,6 +76,18 @@ export interface AudioSegment {
   created_at: string;
 }
 
+export interface PlayerSegment {
+  id: number;
+  spokenId?: number;
+  type: 'heading' | 'paragraph' | 'inline_song';
+  title?: string;
+  text: string;
+  rawSpeechText: string;
+  songTitle?: string;
+  youtubeUrl?: string;
+  embedUrl?: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;

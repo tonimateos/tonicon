@@ -13,6 +13,7 @@ import {
   GeminiQuotaExceededError
 } from './types';
 import { saveActiveLessonBuild, fetchActiveLessonBuild } from './supabase';
+import { sanitizeTextForSpeech } from './lesson-parser';
 
 export { extractQuotaWaitTime, isQuotaError, GeminiQuotaExceededError };
 
@@ -53,7 +54,10 @@ export async function scrapeConcertUrl(url: string): Promise<ScrapeResult> {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
       const modelName = (process.env.GEMINI_MODEL || 'gemini-2.0-flash').replace(/^["']|["']$/g, '').trim();
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: { responseMimeType: 'application/json' }
+      });
 
       const prompt = `You are a concert event parser. Extract concert details from the provided webpage text or title.
 Webpage URL: ${url}
@@ -69,9 +73,9 @@ Return ONLY a strict valid JSON object with the following fields:
 Do NOT include Markdown code fences or extra words. Output only pure JSON.`;
 
       const result = await model.generateContent(prompt);
-      const textResponse = result.response.text().trim().replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
+      const textResponse = result.response.text();
 
-      const parsed = JSON.parse(textResponse);
+      const parsed = safeParseJSON<any>(textResponse);
       if (parsed.band_name && parsed.venue_name && parsed.date) {
         return {
           band_name: String(parsed.band_name),
@@ -118,6 +122,83 @@ function fallbackHeuristicScrape(url: string, rawText: string): ScrapeResult {
   };
 }
 
+/**
+ * Safely parses JSON emitted by LLMs, cleanly extracting the balanced root JSON
+ * structure even if the model appends trailing text, markdown backticks, or comments.
+ */
+export function safeParseJSON<T>(rawText: string): T {
+  let text = (rawText || '').trim();
+
+  // 1. Strip markdown code fences if present
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  // 2. Direct parse attempt
+  try {
+    return JSON.parse(text) as T;
+  } catch (err: any) {
+    // 3. Extract the balanced JSON object between first { and its matching }
+    const firstBrace = text.indexOf('{');
+    if (firstBrace !== -1) {
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      let matchedEnd = -1;
+
+      for (let i = firstBrace; i < text.length; i++) {
+        const char = text[i];
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (char === '\\') {
+          escape = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (!inString) {
+          if (char === '{') {
+            depth++;
+          } else if (char === '}') {
+            depth--;
+            if (depth === 0) {
+              matchedEnd = i;
+              break;
+            }
+          }
+        }
+      }
+
+      if (matchedEnd !== -1) {
+        const candidate = text.slice(firstBrace, matchedEnd + 1);
+        try {
+          return JSON.parse(candidate) as T;
+        } catch (_) {
+          // Fall through to error position extraction
+        }
+      }
+    }
+
+    // 4. Fallback: parse up to error position (e.g. "Unexpected non-whitespace character after JSON at position 25237")
+    const posMatch = err.message?.match(/position\s+(\d+)/);
+    if (posMatch && posMatch[1]) {
+      const pos = parseInt(posMatch[1], 10);
+      if (pos > 0 && pos <= text.length) {
+        const prefix = text.slice(0, pos).trim();
+        try {
+          return JSON.parse(prefix) as T;
+        } catch (_) {
+          // ignore
+        }
+      }
+    }
+
+    throw err;
+  }
+}
+
 export async function planLessonCurriculum(
   userPrompt: string,
   language: 'en' | 'es' = 'en'
@@ -130,7 +211,10 @@ export async function planLessonCurriculum(
   const genAI = new GoogleGenerativeAI(apiKey);
   const rawModel = (process.env.GEMINI_MODEL || 'gemini-2.5-flash').replace(/^["']|["']$/g, '').trim();
   const modelName = rawModel === 'gemini-2.0-flash' ? 'gemini-2.5-flash' : rawModel;
-  const model = genAI.getGenerativeModel({ model: modelName });
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: { responseMimeType: 'application/json' }
+  });
 
   const isSpanish = language === 'es';
 
@@ -231,25 +315,48 @@ Return a strict JSON object with this exact structure:
 Do NOT include Markdown formatting fences or introductory text. Return only valid, parseable JSON.`;
 
   const result = await model.generateContent(prompt);
-  let text = result.response.text().trim();
+  const text = result.response.text();
 
-  // Strip markdown code fences if present
-  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-
-  // Fallback: extract the JSON substring between first { and last }
-  const firstBrace = text.indexOf('{');
-  const lastBrace = text.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    text = text.slice(firstBrace, lastBrace + 1);
-  }
-
-  const parsed: LessonOutline = JSON.parse(text);
+  const parsed = safeParseJSON<LessonOutline>(text);
   if (!parsed.chapters || !Array.isArray(parsed.chapters) || parsed.chapters.length === 0) {
     throw new Error('Gemini failed to generate structured chapters in syllabus outline.');
   }
 
   parsed.language = language;
   return parsed;
+}
+
+/**
+ * Extracts the last clean, complete sentence(s) from a text block
+ * to provide context without slicing words or producing broken fragments.
+ */
+export function getCleanEndingSentence(rawText: string): string {
+  if (!rawText) return '';
+  // 1. Remove markdown headings and URLs
+  const clean = rawText
+    .replace(/^#+\s+[^\n]+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/[*_~`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!clean) return '';
+
+  // 2. Extract complete sentences using sentence terminal punctuation (. ! ?)
+  const sentenceMatches = clean.match(/[^.!?]+[.!?]+(?:\s|$)/g);
+  if (sentenceMatches && sentenceMatches.length > 0) {
+    const lastOne = sentenceMatches[sentenceMatches.length - 1].trim();
+    if (lastOne.length >= 50 || sentenceMatches.length === 1) {
+      return lastOne.slice(-250);
+    }
+    const lastTwo = (sentenceMatches[sentenceMatches.length - 2] + ' ' + lastOne).trim();
+    return lastTwo.length <= 300 ? lastTwo : lastOne;
+  }
+
+  // Fallback: take last ~30 words to avoid word truncation
+  const words = clean.split(/\s+/);
+  return words.slice(-30).join(' ');
 }
 
 export async function generateLessonChapter(
@@ -283,6 +390,8 @@ export async function generateLessonChapter(
     )
     .join('\n');
 
+  const cleanPreviousEnding = getCleanEndingSentence(previousChapterEnding);
+
   const prompt = isSpanish
     ? `Eres el narrador y especialista cultural de este podcast documental sobre música.
 Episodio: '${episodeTitle}'.
@@ -305,10 +414,16 @@ ${additionalArtistsList ? `   Artistas adicionales sugeridos a integrar:\n${addi
    - CADA ARTISTA MENCIONADO DEBE LLEVAR AL MENOS UNA REFERENCIA CONCRETA A UNA CANCIÓN CON SU ENLACE A YOUTUBE.
    - Formato exacto de cada enlace: [Play "Título de Canción" by Artista on YouTube](https://www.youtube.com/results?search_query=Artista+Cancion).
    - Incluye entre 3 y 5 canciones en total a lo largo del capítulo, integradas fluidamente en la narración.
+   - REGLA DE FORMATO DE CANCIONES: Coloca cada enlace de canción en su PROPIA LÍNEA independiente entre párrafos narrativos. NUNCA incrustes el enlace a mitad de una frase o párrafo.
 6. Puntos clave a cubrir:
 ${chapterBrief.key_talking_points.map((p) => `- ${p}`).join('\n')}
 
-${previousChapterEnding ? `Enlaza con naturalidad desde el final del capítulo anterior: "${previousChapterEnding.slice(-300)}"` : ''}
+${cleanPreviousEnding ? `TRANSICIÓN DESDE EL CAPÍTULO PREVIO:
+- El capítulo previo concluyó reflexionando sobre: "${cleanPreviousEnding}".
+- REGLAS ESTRICTAS DE TRANSICIÓN:
+  * NO repitas, cites ni hagas eco de esas palabras textuales.
+  * NO comiences con puntos suspensivos ("...") ni con frases cortadas.
+  * Comienza INMEDIATAMENTE debajo del título ## ${chapterBrief.title} con prosa narrativa 100% nueva, completa y fluida que abra el nuevo tema.` : ''}
 
 Longitud objetivo: 900 a 1.200 palabras para este capítulo.
 Idioma: Escribe todo el capítulo en ESPAÑOL culto, natural y fluido.
@@ -340,10 +455,16 @@ ${additionalArtistsList ? `   Suggested scene artists to weave in:\n${additional
    - EVERY ARTIST MENTIONED MUST INCLUDE AT LEAST ONE SPECIFIC ILLUSTRATIVE SONG REFERENCE WITH A MARKDOWN YOUTUBE LINK.
    - Exact link format: [Play "Song Title" by Artist on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title).
    - Aim for 3 to 5 total song references across the chapter, woven naturally into the historical and musical prose.
+   - MANDATORY SONG LINK FORMAT: Always place each featured song link on its OWN separate standalone line between narrative paragraphs. NEVER embed song links mid-sentence or mid-paragraph.
 6. Cover all chapter talking points thoroughly:
 ${chapterBrief.key_talking_points.map((p) => `- ${p}`).join('\n')}
 
-${previousChapterEnding ? `Bridge naturally from the preceding chapter context: "${previousChapterEnding.slice(-300)}"` : ''}
+${cleanPreviousEnding ? `TRANSITION & PRECEDING CONTEXT:
+- The preceding chapter concluded reflecting on: "${cleanPreviousEnding}".
+- STRICT TRANSITION MANDATES:
+  * Do NOT repeat, quote, or echo ANY of those exact words or sentences.
+  * Do NOT start with an ellipsis ("...") or any sentence fragment.
+  * Begin IMMEDIATELY under the '## ${chapterBrief.title}' heading with 100% fresh, complete, and articulate narrative prose introducing this new chapter.` : ''}
 
 Target length: 900 to 1,200 words for this chapter alone. Rich, articulate, and insightful.
 Language: Write strictly in polished ENGLISH.
@@ -358,9 +479,29 @@ CRITICAL SPOKEN RULES:
   const result = await model.generateContent(prompt);
   let text = result.response.text().trim();
 
-  // Ensure chapter starts with ## heading
+  // 1. Ensure chapter starts with ## heading
   if (!text.startsWith('## ')) {
     text = `## ${chapterBrief.title}\n\n${text}`;
+  }
+
+  // 2. Safeguard: strip any accidental leading ellipsis or sentence fragment right after ## heading
+  text = text.replace(/^(##\s+[^\n]+\n+)(?:\.{2,3}|…)\s*([a-z])/i, (_, heading, firstChar) => `${heading}${firstChar.toUpperCase()}`);
+  text = text.replace(/^(##\s+[^\n]+\n+)(?:\.{2,3}|…)\s*/, '$1');
+
+  // 3. Safeguard: if the opening paragraph duplicates any part of previousChapterEnding, strip that duplicated paragraph
+  if (previousChapterEnding && previousChapterEnding.length > 20) {
+    const blocks = text.split(/\n\s*\n/);
+    if (blocks.length > 1) {
+      const firstPara = blocks[1].trim();
+      const prevNorm = previousChapterEnding.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const firstNorm = firstPara.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      // If the first paragraph is an echo/repeat of the previous ending, remove it
+      if (firstNorm.length > 30 && (prevNorm.includes(firstNorm) || firstNorm.includes(prevNorm.slice(-60)))) {
+        blocks.splice(1, 1);
+        text = blocks.join('\n\n');
+      }
+    }
   }
 
   return text;
@@ -446,8 +587,8 @@ export async function generateFullLessonV2(
 
     const previousEnding =
       completedChapters.length > 0
-        ? completedChapters[completedChapters.length - 1].text.slice(-400)
-        : outline.intro;
+        ? getCleanEndingSentence(completedChapters[completedChapters.length - 1].text)
+        : getCleanEndingSentence(outline.intro);
 
     if (onEvent) {
       const writingMsg = effectiveLanguage === 'es'
@@ -643,22 +784,7 @@ export function hashText(text: string): string {
 }
 
 export function sanitizeSpokenText(text: string): string {
-  return text
-    // Remove markdown song links like [Play "Song" by Artist on YouTube](...) or [Escuchar "Canción" de Artista en YouTube](...)
-    .replace(/\[(?:Play|Escuchar|Reproducir)?\s*(.*?)(?:\s+(?:on|en)\s+YouTube)?\]\(.*?\)/gi, '$1')
-    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-    // Remove sound cues
-    .replace(/\([^)]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|tempo|groove|música|aplausos|batería|guitarra|silencio)[^)]*\)/gi, '')
-    .replace(/\[[^\]]*(?:music|fade|applause|drum|intro|outro|beat|sound|riff|silence|música|aplausos|batería)[^\]]*\]/gi, '')
-    .replace(/\((?:[^)]*?(?:fades?|playing|plays?|guitar|horns?|sax|percussion|cues?)[^)]*?)\)/gi, '')
-    // Remove speaker labels
-    .replace(/(?:^|\n)\s*(?:\*\*|\*|\[)?(?:Host|Narrator|Speaker|Announcer|Presenter|Locutor|Narrador|Presentador)(?:\*\*|\*|\])?:\s*/gi, '')
-    // Remove raw URLs
-    .replace(/https?:\/\/\S+/g, '')
-    // Remove markdown formatting tokens
-    .replace(/[*_~`#]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return sanitizeTextForSpeech(text);
 }
 
 export async function generateSpeechSegment(
