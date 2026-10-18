@@ -468,10 +468,7 @@ export default function LessonsPage() {
               </div>
               <div>
                 <h1 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
-                  <span>Music Lessons</span>
-                  <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/30">
-                    Podcasts v2
-                  </span>
+                  <span>Your Desired Music Lessons</span>
                 </h1>
                 <p className="text-[10px] text-slate-400">Deep-dive music podcasts & history</p>
               </div>

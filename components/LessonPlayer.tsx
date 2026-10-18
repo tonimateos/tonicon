@@ -763,17 +763,7 @@ export function LessonPlayer({
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-950/70 via-slate-900 to-slate-950 border border-indigo-500/30 p-6 sm:p-8 shadow-2xl backdrop-blur-xl">
         <div className="absolute top-0 right-0 -mt-10 -mr-10 w-48 h-48 bg-pink-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 space-y-4">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="px-3 py-1 rounded-full bg-pink-500/20 text-pink-300 border border-pink-500/30 font-semibold flex items-center gap-1.5 shadow-sm">
-              <Radio className="w-3.5 h-3.5 animate-pulse text-pink-400" />
-              Music Podcast Episode
-            </span>
-            {topicPrompt && (
-              <span className="px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700/80 truncate max-w-xs">
-                Topic: {topicPrompt}
-              </span>
-            )}
-          </div>
+
 
           <h1 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-tight">
             {title}
