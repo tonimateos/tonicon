@@ -704,9 +704,6 @@ export default function LessonsPage() {
                                   {lesson.language === 'es' ? '🇪🇸 ES' : '🇬🇧 EN'}
                                 </span>
                               )}
-                              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">
-                                Podcast Episode
-                              </span>
                             </div>
                           </div>
 
@@ -1038,11 +1035,10 @@ export default function LessonsPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedLanguage('en')}
-                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                          selectedLanguage === 'en'
+                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${selectedLanguage === 'en'
                             ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow'
                             : 'text-slate-400 hover:text-slate-200'
-                        }`}
+                          }`}
                       >
                         <span>🇬🇧</span>
                         <span>English</span>
@@ -1050,11 +1046,10 @@ export default function LessonsPage() {
                       <button
                         type="button"
                         onClick={() => setSelectedLanguage('es')}
-                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                          selectedLanguage === 'es'
+                        className={`px-4 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${selectedLanguage === 'es'
                             ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow'
                             : 'text-slate-400 hover:text-slate-200'
-                        }`}
+                          }`}
                       >
                         <span>🇪🇸</span>
                         <span>Español</span>
