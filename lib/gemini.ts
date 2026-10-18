@@ -810,11 +810,14 @@ export async function generateSpeechSegment(
   const languageCode = isSpanish ? 'es-ES' : 'en-US';
 
   const modelsToTry = [
-    'gemini-2.5-flash-preview-tts',
     'gemini-3.8-flash-tts',
+    'gemini-2.5-pro-preview-tts',
+    'gemini-3.8-flash-lite-tts',
+    'gemini-2.5-flash-preview-tts',
     'gemini-3.1-flash-tts-preview'
   ];
 
+  let lastQuotaError: GeminiQuotaExceededError | null = null;
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -855,7 +858,9 @@ export async function generateSpeechSegment(
           const friendlyMsg = waitTime
             ? `Gemini quota exceeded. Please retry in ${waitTime}.`
             : `Gemini quota exceeded: ${rawErrMsg}`;
-          throw new GeminiQuotaExceededError(friendlyMsg, waitTime, rawErrMsg);
+          lastQuotaError = new GeminiQuotaExceededError(friendlyMsg, waitTime, rawErrMsg);
+          console.warn(`TTS model ${model} reached quota (${rawErrMsg}), trying next fallback model...`);
+          continue;
         }
 
         throw new Error(rawErrMsg);
@@ -872,11 +877,16 @@ export async function generateSpeechSegment(
     } catch (err: any) {
       lastError = err;
       if (err.isQuota || err.name === 'GeminiQuotaExceededError' || isQuotaError(err.message)) {
-        // Halt immediately on quota/rate limit error - fallback models share the same project quota
-        throw err;
+        lastQuotaError = err;
+        console.warn(`TTS model ${model} hit quota error, trying next fallback model...`);
+        continue;
       }
       console.warn(`Failed TTS with model ${model}, trying fallback:`, err);
     }
+  }
+
+  if (lastQuotaError) {
+    throw lastQuotaError;
   }
 
   throw new Error(`All Gemini TTS models failed: ${lastError?.message || 'Unknown error'}`);
