@@ -6,7 +6,7 @@ Upgrade the lesson generation pipeline to produce **long-form, broadcast-grade e
 - **Historical Context & Underlying Reasons**: In-depth exploration of *why* and *how* the musical movement, scene, or artist emerged when and where they did. This uncovers the socio-political climate, economic conditions, generational rebellions, geographic migrations, and technological breakthroughs (e.g. affordable magnetic tape, cheap synthesizers, electric amplification, pirate radio, club sound systems) that sparked the sound.
 - **Deep Artist Spotlights**: When an influential artist or group is introduced, the narration pauses to explore their origin, instrumental rig, creative philosophy, key collaborators, and personal journey rather than a cursory one-sentence mention.
 - **Substantive Musicological Analysis**: Accessible breakdown of rhythmic patterns, scales, harmonic structures, production techniques, and studio innovations (e.g., tape delay, motorik beats, distortion pedals, polyrhythms).
-- **Rich Organic Discography**: 5 to 8 featured songs organically introduced and embedded directly within the text with in-page playback.
+- **Rich Organic Discography**: 5 to 12+ songs organically introduced and embedded directly within the text with in-page playback. While Phase 1 plans key anchor tracks, Phase 2 grants Gemini full creative freedom to introduce additional songs by the spotlighted artists whenever helpful to illustrate stylistic shifts, comparisons, or breakthroughs.
 
 ---
 
@@ -84,7 +84,8 @@ Each chapter is written in a dedicated generation call, granting the model 100% 
   > - Unpack the historical context & reasons: explain why this sound emerged in this specific time and place (socio-economic conditions, counterculture, technology, migration, or community scene).
   > - Dedicate significant time to the artist spotlight: {ARTIST_SPOTLIGHT}. Explain their upbringing, their instruments/gear, their struggle, and their mindset.
   > - Break down the musical theory and production: {MUSICAL_THEORY_FOCUS}. Make technical musical concepts vivid and engaging for a listener.
-  > - Introduce the featured track organically into the script: [Play '{SONG_TITLE}' by {SONG_ARTIST} on YouTube](https://www.youtube.com/results?search_query={SEARCH_QUERY}) and analyze its specific moments, riffs, or rhythms.
+  > - **Track Curation & Freedom to Add Songs**: Introduce the primary planned track: [Play '{SONG_TITLE}' by {SONG_ARTIST} on YouTube](https://www.youtube.com/results?search_query={SEARCH_QUERY}) and analyze its specific moments, riffs, or rhythms.
+  >   - **Add More Songs if Thought Necessary**: If you feel it helps illustrate the artist's range, evolution, or a pivotal contrast, you are expressly encouraged to introduce 1 or 2 *additional* songs by this artist (or their close collaborators/influences). Every additional song must also be embedded organically with its YouTube search query link: `[Play 'Song Title' by Artist on YouTube](https://www.youtube.com/results?search_query=Artist+Song+Title)`.
   > - Cover all chapter talking points thoroughly: {TALKING_POINTS}.
   > - Target length: 900 to 1,200 words for this chapter alone.
   >
@@ -150,7 +151,65 @@ The existing `POST /api/lessons/generate` endpoint streams JSON chunks over a st
 
 ---
 
-## 5. Lesson Player Upgrades for Long-Form Content
+## 5. Resilient Build Persistence ("Current Building of the Podcast") & Resume Workflow
+
+Generating a comprehensive 8,000-word lesson over multiple chapters takes significant time and tokens. **No work must ever be lost** if a connection drops, a browser tab closes, a server glitch occurs, or the user navigates away.
+
+### 1. Dedicated Database Table: `active_lesson_build`
+A designated table in Supabase stores the state of the podcast currently in progress:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.active_lesson_build (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    topic_prompt TEXT NOT NULL,
+    title TEXT,
+    outline_json JSONB,                       -- Episode syllabus & chapter dossiers from Phase 1
+    chapters_json JSONB DEFAULT '[]'::jsonb,  -- Array of completed chapters as they land
+    content TEXT DEFAULT '',                   -- Accumulated master Markdown text so far
+    status TEXT NOT NULL DEFAULT 'in_progress',-- 'in_progress' | 'completed' | 'paused'
+    current_step TEXT,                        -- e.g. "writing_chapter_3"
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RLS Policies
+ALTER TABLE public.active_lesson_build ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public all access to active_lesson_build" ON public.active_lesson_build FOR ALL USING (true) WITH CHECK (true);
+```
+
+### 2. Step-by-Step Progressive Database Saving
+As the pipeline progresses, the backend updates `active_lesson_build` in real time:
+1. **On Prompt Sent**: Row is created with `topic_prompt`, `status: 'planning'`.
+2. **On Outline Landed**: Row is updated with `title` and `outline_json`.
+3. **On Each Chapter Return**: The server immediately appends the new chapter object into `chapters_json` and appends its formatted text into `content`.
+4. **On Completion**: Row is marked `status: 'completed'`.
+
+### 3. Automatic Detection & Resume upon Visiting `/lessons`
+When an admin navigates to `/lessons` (or opens the "Music Podcasts" generation tab):
+- The page queries for an existing active draft (`GET /api/lessons/draft`).
+- **If an active build exists**:
+  - The UI immediately loads and renders the state from the database.
+  - Displays the outline and all chapters generated so far.
+  - If the build was interrupted midway (e.g. 2 out of 5 chapters completed before a disconnect), a prominent **"Resume Generation"** button lets the user pick up generation from Chapter 3 without re-generating earlier chapters.
+  - If generation had fully finished, the user can immediately read, listen via TTS, or click **"Save Lesson"** (which persists it permanently to `public.lessons` and clears the active build).
+
+### 4. "Create New" Confirmation & Deletion Safeguard
+To prevent accidental data loss:
+- If an active draft exists in `active_lesson_build` and the user attempts to enter a new prompt or clicks **"Create New Podcast"**:
+  - An explicit modal warning pops up:
+    > **⚠️ Unfinished Podcast in Progress**
+    >
+    > You have a podcast currently being built: **"{title or topic_prompt}"** with {N} chapters completed.
+    >
+    > Starting a new podcast will permanently discard this work. Are you sure you want to discard it?
+    >
+    > `[ Keep Current Draft ]` &nbsp;&nbsp;&nbsp;&nbsp; `[ Discard & Start New ]`
+  - Only if the user confirms **"Discard & Start New"**:
+    - The backend calls `DELETE /api/lessons/draft` (clearing the `active_lesson_build` row).
+    - The UI resets to a fresh, blank prompt field.
+
+---
+
+## 6. Lesson Player Upgrades for Long-Form Content
 
 A 7,000-word lesson requires enhanced navigation tools:
 
@@ -176,7 +235,7 @@ A 7,000-word lesson requires enhanced navigation tools:
 
 ---
 
-## 6. Targeted Refinement Loop (Chapter-Level & Global)
+## 7. Targeted Refinement Loop (Chapter-Level & Global)
 
 Refining an 8,000-word lesson via "Suggest Changes" in one shot could truncate text or erase details. V2 introduces two refinement modes:
 
@@ -187,10 +246,16 @@ Refining an 8,000-word lesson via "Suggest Changes" in one shot could truncate t
 
 ---
 
-## 7. Implementation Checklist (When Triggered)
+## 8. Implementation Checklist (When Triggered)
 
-- [ ] **Lib**: In `lib/gemini.ts`, implement `planLessonCurriculum` and `generateLessonChapter` to handle the multi-step generation pipeline internally.
-- [ ] **Backend**: Upgrade the existing `POST /api/lessons/generate` in `app/api/lessons/generate/route.ts` to run this multi-step pipeline and return the assembled lesson.
-- [ ] **Frontend**: Update `app/lessons/page.tsx` with a live generation progress indicator (`[✓ Syllabus Planned] → [Writing Chapters...]`).
+- [ ] **Database**: Create `active_lesson_build` table in Supabase with RLS policies.
+- [ ] **Draft API**: Add endpoints (`GET /api/lessons/draft`, `DELETE /api/lessons/draft`) to query and clear the active building state.
+- [ ] **Lib**: In `lib/gemini.ts`, implement `planLessonCurriculum` and `generateLessonChapter` with progressive database updates on each chapter return.
+- [ ] **Backend**: Upgrade `POST /api/lessons/generate` in `app/api/lessons/generate/route.ts` to stream progress and support resuming from a specific chapter.
+- [ ] **Frontend**: In `app/lessons/page.tsx`:
+  - Auto-check and restore `active_lesson_build` on mount.
+  - Implement "Resume Generation" for interrupted builds.
+  - Add "Discard & Start New" confirmation modal before overwriting an active draft.
+  - Display the live generation stepper (`[✓ Syllabus Planned] → [Writing Chapters...]`).
 - [ ] **Player**: Add Chapter Table of Contents sidebar and reading time badge to `components/LessonPlayer.tsx`.
 - [ ] **Auto-scroll**: Implement active-paragraph viewport tracking during TTS playback.
