@@ -421,7 +421,7 @@ export default function LessonsPage() {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: adminPassword })
-      }).catch(() => {});
+      }).catch(() => { });
 
       setActiveBuild(null);
 
@@ -514,14 +514,13 @@ export default function LessonsPage() {
               setActiveTab('saved');
               setSelectedLesson(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${
-              activeTab === 'saved'
-                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${activeTab === 'saved'
+              ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+              }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>Saved Lessons</span>
+            <span>Saved Podcasts</span>
             <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
               {savedLessons.length}
             </span>
@@ -532,14 +531,13 @@ export default function LessonsPage() {
               setActiveTab('add');
               setSelectedLesson(null);
             }}
-            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${
-              activeTab === 'add'
-                ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
+            className={`flex-1 py-2 text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition ${activeTab === 'add'
+              ? 'bg-gradient-to-r from-pink-600 to-indigo-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+              }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Music Podcasts</span>
+            <span>Create Podcast</span>
             {activeBuild && activeBuild.status !== 'completed' && (
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
             )}
@@ -741,13 +739,12 @@ export default function LessonsPage() {
                           return (
                             <div
                               key={ch.chapter_number}
-                              className={`p-3 rounded-xl border text-xs transition ${
-                                isDone
-                                  ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
-                                  : isWritingNow
+                              className={`p-3 rounded-xl border text-xs transition ${isDone
+                                ? 'bg-emerald-950/40 border-emerald-700/60 text-emerald-200'
+                                : isWritingNow
                                   ? 'bg-pink-950/40 border-pink-500/60 text-white shadow-lg animate-pulse'
                                   : 'bg-slate-950 border-slate-800/80 text-slate-400'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-bold flex items-center gap-1.5 truncate">
@@ -872,7 +869,7 @@ export default function LessonsPage() {
                       width: `${Math.round(
                         ((activeBuild.chapters_json?.length || 0) /
                           Math.max(1, activeBuild.outline_json.chapters.length)) *
-                          100
+                        100
                       )}%`
                     }}
                   />
@@ -925,9 +922,6 @@ export default function LessonsPage() {
                       Create Long-Form Music Podcast
                     </h2>
                   </div>
-                  <p className="text-xs text-slate-400">
-                    Describe what you'd like to learn about music. Gemini will act as a world-expert podcast producer, generating a 5,000–8,000+ word multi-chapter episode with historical depth, musicological analysis, and playable YouTube tracks.
-                  </p>
                 </div>
 
                 <form onSubmit={handleInitiateNewLesson} className="space-y-4">

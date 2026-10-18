@@ -155,6 +155,7 @@ export function LessonPlayer({
 
   // Ref to hold current speech utterance
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const speechSessionIdRef = useRef<number>(0);
   const segmentsRef = useRef<Segment[]>([]);
 
   // Fetch existing audio segments if lesson is saved
@@ -454,16 +455,26 @@ export function LessonPlayer({
 
   // Clean text and speak from a given segment index (Dual Buffer: Studio Audio + Browser Fallback)
   const startSpeechFromSegment = (startIndex: number) => {
+    // Generate new session ID to invalidate any callbacks from previous session
+    const sessionId = ++speechSessionIdRef.current;
+
     // Stop any active YouTube playing embed
     setActiveEmbedSegmentId(null);
 
-    // Cancel browser TTS
+    // Detach and cancel browser TTS safely
+    if (utteranceRef.current) {
+      utteranceRef.current.onend = null;
+      utteranceRef.current.onerror = null;
+      utteranceRef.current = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
 
     // Stop HTML5 audio element
     if (currentAudioRef.current) {
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
@@ -478,6 +489,8 @@ export function LessonPlayer({
     let currentIdx = startIndex;
 
     const playNext = () => {
+      if (sessionId !== speechSessionIdRef.current) return;
+
       if (currentIdx >= segments.length) {
         setIsPlaying(false);
         setIsPaused(false);
@@ -515,27 +528,33 @@ export function LessonPlayer({
         }
 
         audio.onended = () => {
+          if (sessionId !== speechSessionIdRef.current) return;
           setTimeout(() => {
+            if (sessionId !== speechSessionIdRef.current) return;
             currentIdx++;
             playNext();
           }, 350);
         };
 
         audio.onerror = (e) => {
+          if (sessionId !== speechSessionIdRef.current) return;
           console.warn('Studio audio playback error, falling back to browser speech:', e);
           fallbackToBrowserSpeech(segment, () => {
+            if (sessionId !== speechSessionIdRef.current) return;
             currentIdx++;
             playNext();
           });
         };
 
         audio.play().catch((playErr) => {
+          if (sessionId !== speechSessionIdRef.current) return;
           console.warn('Audio play prevented:', playErr);
           setIsPlaying(false);
           setIsPaused(false);
         });
       } else {
         fallbackToBrowserSpeech(segment, () => {
+          if (sessionId !== speechSessionIdRef.current) return;
           currentIdx++;
           playNext();
         });
@@ -543,6 +562,8 @@ export function LessonPlayer({
     };
 
     const fallbackToBrowserSpeech = (segment: Segment, onComplete: () => void) => {
+      if (sessionId !== speechSessionIdRef.current) return;
+
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
         onComplete();
         return;
@@ -552,6 +573,18 @@ export function LessonPlayer({
       if (!textToSpeak || textToSpeak.length < 2) {
         onComplete();
         return;
+      }
+
+      // Detach listeners from any active utterance
+      if (utteranceRef.current) {
+        utteranceRef.current.onend = null;
+        utteranceRef.current.onerror = null;
+        utteranceRef.current = null;
+      }
+
+      // If speechSynthesis was paused in browser, resume it to prevent queue lockup
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
       }
 
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
@@ -564,17 +597,29 @@ export function LessonPlayer({
       }
 
       utterance.onend = () => {
+        if (sessionId !== speechSessionIdRef.current) return;
         onComplete();
       };
 
       utterance.onerror = (e) => {
+        if (sessionId !== speechSessionIdRef.current) return;
+        // In Chrome and Safari, canceling an utterance fires onerror with 'interrupted' or 'canceled'.
+        // These are normal lifecycle events from user navigation or double clicks, NOT unrecoverable playback failures.
+        if (e.error === 'interrupted' || e.error === 'canceled') {
+          return;
+        }
         console.warn('SpeechSynthesis error:', e);
         setIsPlaying(false);
         setIsPaused(false);
         setActiveSegmentIndex(null);
       };
 
-      window.speechSynthesis.speak(utterance);
+      // In Chromium / Safari, speechSynthesis.cancel() is asynchronous.
+      // A 50ms buffer prevents the browser's speech synthesis engine from dropping the new utterance.
+      setTimeout(() => {
+        if (sessionId !== speechSessionIdRef.current) return;
+        window.speechSynthesis.speak(utterance);
+      }, 50);
     };
 
     playNext();
@@ -601,7 +646,15 @@ export function LessonPlayer({
   };
 
   const handleStopTTS = () => {
+    speechSessionIdRef.current++;
+    if (utteranceRef.current) {
+      utteranceRef.current.onend = null;
+      utteranceRef.current.onerror = null;
+      utteranceRef.current = null;
+    }
     if (currentAudioRef.current) {
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
       currentAudioRef.current.pause();
       currentAudioRef.current = null;
     }
