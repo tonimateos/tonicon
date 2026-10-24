@@ -970,35 +970,6 @@ export default function LessonsPage() {
                         disabled={isSubmittingComment}
                         className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner resize-none"
                       />
-
-                      {/* Quick Ideas / Sugerencias */}
-                      <div className="space-y-1.5 pt-2">
-                        <span className="text-[11px] text-slate-400 font-medium block">
-                          Quick ideas (click to use):
-                        </span>
-                        <div className="flex flex-col gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCommentText(
-                                'Me encantaría un podcast sobre la historia de la música clásica, pero con cotilleos!'
-                              )
-                            }
-                            className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left"
-                          >
-                            💡 "Me encantaría un podcast sobre la historia de la música clásica, pero con cotilleos!"
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCommentText('Me ha encantado el podcast del funk!')
-                            }
-                            className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left"
-                          >
-                            ❤️ "Me ha encantado el podcast del funk!"
-                          </button>
-                        </div>
-                      </div>
                     </div>
 
                     {commentSuccessMessage && (
