@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Concert, Activity, ActionType, Lesson, ActiveLessonBuild, AudioSegment } from './types';
+import { Concert, Activity, ActionType, Lesson, ActiveLessonBuild, AudioSegment, PodcastComment, PodcastPetition } from './types';
 import fs from 'fs';
 import path from 'path';
 
@@ -612,5 +612,199 @@ export async function deleteLesson(lessonId: string): Promise<boolean> {
 
   return true;
 }
+
+// ==========================================
+// Podcast Comments Management
+// ==========================================
+
+const LOCAL_COMMENTS_FILE = path.join(process.cwd(), 'data', 'podcast_comments.json');
+const LOCAL_PETITIONS_FILE = path.join(process.cwd(), 'data', 'podcast_petitions.json');
+
+function getLocalComments(): PodcastComment[] {
+  try {
+    if (fs.existsSync(LOCAL_COMMENTS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_COMMENTS_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      return list.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        comment: item.comment || item.petition || '',
+        created_at: item.created_at
+      }));
+    }
+    // Fallback: check petitions file if comments file not yet created
+    if (fs.existsSync(LOCAL_PETITIONS_FILE)) {
+      const raw = fs.readFileSync(LOCAL_PETITIONS_FILE, 'utf-8');
+      const list = JSON.parse(raw);
+      return list.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        comment: item.comment || item.petition || '',
+        created_at: item.created_at
+      }));
+    }
+  } catch (e) {
+    console.error('Error reading local podcast comments file:', e);
+  }
+  return [];
+}
+
+function saveLocalComments(comments: PodcastComment[]): void {
+  try {
+    const dir = path.dirname(LOCAL_COMMENTS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(LOCAL_COMMENTS_FILE, JSON.stringify(comments, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving local podcast comments file:', e);
+  }
+}
+
+export async function fetchAllPodcastComments(): Promise<PodcastComment[]> {
+  try {
+    // Try podcast_comments table first
+    const { data, error } = await supabase
+      .from('podcast_comments')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      // If table doesn't exist, try podcast_petitions
+      const { data: petData, error: petError } = await supabase
+        .from('podcast_petitions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (petError) {
+        return getLocalComments().sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      }
+
+      const mapped = (petData || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        comment: p.comment || p.petition || '',
+        created_at: p.created_at
+      }));
+      saveLocalComments(mapped);
+      return mapped;
+    }
+
+    if (data && data.length > 0) {
+      saveLocalComments(data);
+    }
+
+    return (data || []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      comment: c.comment || c.petition || '',
+      created_at: c.created_at
+    }));
+  } catch (err) {
+    console.warn('Supabase fetchAllPodcastComments error, falling back to local storage:', err);
+    return getLocalComments().sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }
+}
+
+export async function createPodcastComment(commentData: {
+  name: string;
+  comment: string;
+}): Promise<PodcastComment> {
+  const newComment: PodcastComment = {
+    id:
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `comment_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: commentData.name.trim(),
+    comment: commentData.comment.trim(),
+    created_at: new Date().toISOString()
+  };
+
+  // Always save locally
+  try {
+    const current = getLocalComments();
+    current.unshift(newComment);
+    saveLocalComments(current);
+  } catch (err) {
+    console.warn('Failed to save comment locally:', err);
+  }
+
+  // Attempt to save to Supabase
+  try {
+    // Try podcast_comments table
+    const { data, error } = await supabase
+      .from('podcast_comments')
+      .insert([
+        {
+          name: newComment.name,
+          comment: newComment.comment
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      // Fallback: try inserting to podcast_petitions table if it exists
+      const { data: petData, error: petErr } = await supabase
+        .from('podcast_petitions')
+        .insert([
+          {
+            name: newComment.name,
+            petition: newComment.comment
+          }
+        ])
+        .select()
+        .single();
+
+      if (petErr) {
+        console.warn('Supabase insert comment/petition error (using local storage):', petErr.message);
+        return newComment;
+      }
+      return {
+        id: petData.id,
+        name: petData.name,
+        comment: petData.comment || petData.petition || newComment.comment,
+        created_at: petData.created_at
+      };
+    }
+
+    return data || newComment;
+  } catch (err) {
+    console.warn('Supabase createPodcastComment error (saved to local fallback):', err);
+    return newComment;
+  }
+}
+
+export async function deletePodcastComment(id: string): Promise<boolean> {
+  // Delete from local
+  try {
+    const current = getLocalComments().filter((p) => p.id !== id);
+    saveLocalComments(current);
+  } catch (err) {
+    console.warn('Failed to delete local comment:', err);
+  }
+
+  // Delete from Supabase
+  try {
+    await supabase.from('podcast_comments').delete().eq('id', id);
+    await supabase.from('podcast_petitions').delete().eq('id', id);
+  } catch (err) {
+    console.warn('Exception deleting comment from Supabase:', err);
+  }
+
+  return true;
+}
+
+// Backward compatibility aliases
+export const fetchAllPodcastPetitions = fetchAllPodcastComments;
+export async function createPodcastPetition(data: { name: string; petition: string }) {
+  const res = await createPodcastComment({ name: data.name, comment: data.petition });
+  return { ...res, petition: res.comment };
+}
+export const deletePodcastPetition = deletePodcastComment;
 
 

@@ -24,14 +24,17 @@ import {
   List,
   Clock,
   Layers,
-  ChevronRight
+  ChevronRight,
+  MessageSquare
 } from 'lucide-react';
 import {
   Lesson,
   ActiveLessonBuild,
   LessonOutline,
   CompletedChapter,
-  LessonStreamEvent
+  LessonStreamEvent,
+  PodcastComment,
+  PodcastPetition
 } from '@/lib/types';
 import { LessonPlayer } from '@/components/LessonPlayer';
 import { AdminLoginModal } from '@/components/AdminLoginModal';
@@ -98,6 +101,14 @@ export default function LessonsPage() {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isRefiningDraft, setIsRefiningDraft] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Podcast Comments State
+  const [comments, setComments] = useState<PodcastComment[]>([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [commenterName, setCommenterName] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [commentSuccessMessage, setCommentSuccessMessage] = useState<string | null>(null);
 
   // Sync admin authentication from localStorage
   useEffect(() => {
@@ -178,7 +189,178 @@ export default function LessonsPage() {
   useEffect(() => {
     fetchLessons();
     fetchActiveDraft();
+    fetchComments();
   }, []);
+
+  const fetchComments = async () => {
+    setLoadingComments(true);
+    try {
+      const res = await fetch('/api/lessons/comments');
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.comments)) {
+        setComments(data.comments);
+      }
+    } catch (err) {
+      console.error('Failed to load podcast comments:', err);
+    } finally {
+      setLoadingComments(false);
+    }
+  };
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commenterName.trim() || !commentText.trim()) return;
+
+    setIsSubmittingComment(true);
+    setCommentSuccessMessage(null);
+    try {
+      const res = await fetch('/api/lessons/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: commenterName.trim(),
+          comment: commentText.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to submit comment');
+      }
+
+      if (data.comment) {
+        setComments((prev) => [data.comment, ...prev.filter((c) => c.id !== data.comment.id)]);
+      }
+
+      setCommentText('');
+      setCommentSuccessMessage('Thank you! Your comment has been saved :-)');
+      showToast('Comment submitted! Toni will check it out :-)');
+    } catch (err: any) {
+      console.error('Error submitting comment:', err);
+      showToast(err.message || 'Error submitting comment');
+    } finally {
+      setIsSubmittingComment(false);
+    }
+  };
+
+  const handleDeleteComment = async (id: string) => {
+    if (!confirm('Are you sure you want to remove this comment?')) return;
+    try {
+      const res = await fetch('/api/lessons/comments', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, password: adminPassword })
+      });
+      if (res.ok) {
+        setComments((prev) => prev.filter((c) => c.id !== id));
+        showToast('Comment removed.');
+      }
+    } catch (err) {
+      console.error('Failed to delete comment:', err);
+    }
+  };
+
+  const renderCommentsList = (isAdminView = false) => {
+    return (
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-pink-500/10 border border-pink-500/20 text-pink-400 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Podcast Comments</span>
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] text-pink-300 font-semibold border border-slate-700">
+                  {comments.length}
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {isAdminView
+                  ? 'Comments left by visitors — click "Use as Topic" to load into prompt'
+                  : 'Comments, feedback, and topic suggestions left by friends for Toni'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {loadingComments ? (
+          <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400">
+            <Sparkles className="w-4 h-4 animate-spin text-pink-400 mx-auto mb-2" />
+            Loading comments...
+          </div>
+        ) : comments.length === 0 ? (
+          <div className="p-8 text-center rounded-2xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400 space-y-1">
+            <p className="font-semibold text-slate-300">No comments yet :-)</p>
+            <p className="text-[11px]">Be the first to leave a comment above!</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3">
+            {comments.map((item) => {
+              const formattedDate = new Date(item.created_at).toLocaleDateString('en-GB', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric'
+              });
+
+              return (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 hover:border-slate-700 transition shadow-sm space-y-2.5"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-pink-500/20 to-indigo-500/20 border border-pink-500/30 text-pink-300 font-bold text-xs flex items-center justify-center shrink-0">
+                        {item.name ? item.name.charAt(0).toUpperCase() : '?'}
+                      </div>
+                      <span className="text-xs font-bold text-white truncate">
+                        {item.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-slate-500">
+                        {formattedDate}
+                      </span>
+                      {isAdminView && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUserPrompt(item.comment);
+                              showToast(`Topic copied to prompt: "${item.comment.slice(0, 30)}..."`);
+                              window.scrollTo({ top: 300, behavior: 'smooth' });
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/30 text-[10px] font-semibold flex items-center gap-1 transition"
+                            title="Use as podcast topic prompt"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>Use as Topic</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteComment(item.id)}
+                            className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 transition"
+                            title="Delete comment"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-300 leading-relaxed pl-9 border-l-2 border-pink-500/30 whitespace-pre-wrap">
+                    {item.comment}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -740,24 +922,107 @@ export default function LessonsPage() {
         {activeTab === 'add' && (
           <div className="space-y-6">
             {!isAdmin ? (
-              /* Non-admin Gate Screen */
-              <div className="py-16 px-6 text-center rounded-3xl bg-slate-900/60 border border-slate-800 shadow-xl space-y-5">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mx-auto shadow-inner">
-                  <Lock className="w-7 h-7" />
+              /* Non-admin Gate & Comment Form */
+              <div className="space-y-6">
+                <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/70 border border-slate-800/80 shadow-2xl space-y-6 backdrop-blur-xl">
+                  {/* Notice & Text */}
+                  <div className="text-center space-y-3 max-w-lg mx-auto">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-pink-500/20 to-indigo-500/20 border border-pink-500/30 text-pink-400 flex items-center justify-center mx-auto shadow-inner">
+                      <Radio className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-base sm:text-lg font-bold text-white tracking-tight leading-snug">
+                        Leave a comment about a podcast, or a petition for a new one!
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Comment Form */}
+                  <form onSubmit={handleCommentSubmit} className="space-y-4 max-w-lg mx-auto">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                        Name
+                      </label>
+                      <input
+                        type="text"
+                        value={commenterName}
+                        onChange={(e) => setCommenterName(e.target.value)}
+                        placeholder="Your name"
+                        required
+                        disabled={isSubmittingComment}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-semibold text-slate-300">
+                          Your Comment
+                        </label>
+                      </div>
+
+                      <textarea
+                        rows={3}
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        placeholder='e.g. "Me encantaría un podcast sobre la historia de la música clásica, pero con cotilleos!" or "Me ha encantado el podcast del funk!"'
+                        required
+                        disabled={isSubmittingComment}
+                        className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-pink-500 transition shadow-inner resize-none"
+                      />
+
+                      {/* Quick Ideas / Sugerencias */}
+                      <div className="space-y-1.5 pt-2">
+                        <span className="text-[11px] text-slate-400 font-medium block">
+                          Quick ideas (click to use):
+                        </span>
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCommentText(
+                                'Me encantaría un podcast sobre la historia de la música clásica, pero con cotilleos!'
+                              )
+                            }
+                            className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left"
+                          >
+                            💡 "Me encantaría un podcast sobre la historia de la música clásica, pero con cotilleos!"
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCommentText('Me ha encantado el podcast del funk!')
+                            }
+                            className="text-[11px] px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition text-left"
+                          >
+                            ❤️ "Me ha encantado el podcast del funk!"
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {commentSuccessMessage && (
+                      <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-300 text-xs flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>{commentSuccessMessage}</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingComment || !commenterName.trim() || !commentText.trim()}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-pink-600/30 transition transform active:scale-95 disabled:opacity-50"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{isSubmittingComment ? 'Sending...' : 'Send Comment'}</span>
+                      </button>
+                    </div>
+                  </form>
                 </div>
-                <div className="space-y-1.5 max-w-md mx-auto">
-                  <h2 className="text-lg font-bold text-white">Admin Privileges Required</h2>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    You need to be Toni (Admin) to generate and save new music lessons. You can still browse and listen to all existing lessons in the Saved Lessons tab.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsAdminModalOpen(true)}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 inline-flex items-center gap-2 transition transform active:scale-95"
-                >
-                  <Lock className="w-4 h-4" />
-                  <span>Unlock Admin Mode</span>
-                </button>
+
+                {/* Comments list at the bottom */}
+                {renderCommentsList(false)}
               </div>
             ) : isGenerating ? (
               /* Live Real-Time Generation Dashboard */
@@ -997,8 +1262,9 @@ export default function LessonsPage() {
                 </div>
               </div>
             ) : (
-              /* Add Lesson Prompt Form */
-              <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/70 border border-slate-800/80 shadow-2xl space-y-6 backdrop-blur-xl">
+              <div className="space-y-6">
+                {/* Add Lesson Prompt Form */}
+                <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/70 border border-slate-800/80 shadow-2xl space-y-6 backdrop-blur-xl">
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-pink-400" />
@@ -1100,7 +1366,11 @@ export default function LessonsPage() {
                   </div>
                 </form>
               </div>
-            )}
+
+              {/* Comments list for Toni Admin at the bottom of the Create Tab */}
+              {renderCommentsList(true)}
+            </div>
+          )}
           </div>
         )}
       </div>

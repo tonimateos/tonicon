@@ -100,6 +100,15 @@ export interface Lesson {
   audio_segments?: AudioSegment[];
 }
 
+export interface PodcastComment {
+  id: string;
+  name: string;
+  comment: string;
+  created_at: string;
+}
+
+// Backward-compatibility alias
+export type PodcastPetition = PodcastComment & { petition?: string };
 
 export interface ChapterDossier {
   chapter_number: number;

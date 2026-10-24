@@ -151,5 +151,20 @@ CREATE POLICY "Allow public update access to lessons" ON public.lessons FOR UPDA
 DROP POLICY IF EXISTS "Allow public delete access to lessons" ON public.lessons;
 CREATE POLICY "Allow public delete access to lessons" ON public.lessons FOR DELETE USING (true);
 
+-- 11. Podcast Comments Table
+CREATE TABLE IF NOT EXISTS public.podcast_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    comment TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_podcast_comments_created_at ON public.podcast_comments (created_at DESC);
+ALTER TABLE public.podcast_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read access to podcast_comments" ON public.podcast_comments FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access to podcast_comments" ON public.podcast_comments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public delete access to podcast_comments" ON public.podcast_comments FOR DELETE USING (true);
+
+
 
 
